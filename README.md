@@ -1,5 +1,7 @@
 # PacketReporter
 
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-public%20beta-orange.svg)](CHANGELOG.md)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Wireshark](https://img.shields.io/badge/Wireshark-4.0%2B-1679A7.svg)](https://www.wireshark.org/)
 [![Lua](https://img.shields.io/badge/Lua-5.2%2B-000080.svg)](https://www.lua.org/)
@@ -8,6 +10,8 @@
 [![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6.svg?logo=windows)](installers/windows/)
 
 A quick and easy way to create comprehensive network statistics reports directly from Wireshark. Generate detailed traffic analysis with visualizations and export to PDF in seconds.
+
+> **⚠️ Beta Status**: This is version 0.2.0, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 
@@ -18,7 +22,7 @@ A quick and easy way to create comprehensive network statistics reports directly
 - 📄 **Multi-page PDF Export** - A4 and Legal paper sizes with intelligent page breaks
 - 🎯 **Filter Support** - Works seamlessly with Wireshark display filters
 - 🔍 **Deep Protocol Analysis** - DNS, TLS/SSL, HTTP, TCP, UDP, MAC layer statistics
-- 🚀 **Wireshark Integrated** - Pure Lua implementation using Wireshark's built-in APIs
+- 🚀 **Zero Dependencies** - Pure Lua implementation using Wireshark's built-in APIs
 - 💾 **Auto-save Reports** - Automatically saves to ~/Documents/PacketReporter Reports/
 - ⚡ **Fast Performance** - Efficient packet processing with Wireshark Listener API
 
@@ -31,7 +35,7 @@ Access the plugin from the Wireshark menu:
 Tools → PacketReporter → Detailed Report (A4)
 ```
 
-![PacketReporter Screenshot](examples/Packet-Reporter-Samples.png)
+![PacketReporter Screenshot](examples/packet-reporter-screenshot.png)
 
 *Example of generated report with comprehensive network analysis and visualizations*
 

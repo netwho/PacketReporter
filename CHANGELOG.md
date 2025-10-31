@@ -5,7 +5,9 @@ All notable changes to the PacketReporter project will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2025-01-27
+## [0.2.0] - 2025-01-31 (Public Beta)
+
+> **Note**: This is a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 
 ### Added
 - **Summary Report** with quick traffic overview
@@ -91,4 +93,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[1.0.0]: https://github.com/netwho/PacketReporter/releases/tag/v1.0.0
+[0.2.0]: https://github.com/netwho/PacketReporter/releases/tag/v0.2.0
