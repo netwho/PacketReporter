@@ -335,10 +335,6 @@ local function generate_cover_page(paper, config, toc_items)
     add(string.format('<text x="%d" y="%d" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#666">%d</text>\n',
       paper.width - 120, y_pos, item.page))
     
-    -- Dotted line connecting title to page number
-    add(string.format('<line x1="120" y1="%d" x2="%d" y2="%d" stroke="#ddd" stroke-width="1" stroke-dasharray="3,3"/>\n',
-      y_pos - 5, paper.width - 120, y_pos - 5))
-    
     y_pos = y_pos + 25
   end
   
