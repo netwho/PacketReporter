@@ -6,8 +6,8 @@
 
 **Project Name:** PacketReporter  
 **Status:** ✅ Complete  
-**Version:** 1.0.0  
-**Date:** January 25, 2025
+**Version:** 0.2.0  
+**Date:** October 25, 2025
 
 ## Project Goals (Completed)
 
@@ -420,7 +420,7 @@ Use Wireshark sample captures:
 
 ## Version History
 
-### v1.0.0 (2025-01-25) - Initial Release
+### v0.2.0 (2025-10-25) - Initial Release
 
 **Features:**
 - Summary Report with 4 chart types
@@ -451,6 +451,6 @@ For issues or questions:
 
 ---
 
-**Project Status: ✅ COMPLETE & PRODUCTION READY**
+**Project Status: ✅ Public Beta**
 
 All requirements implemented. Plugin ready for deployment and use.
