@@ -31,7 +31,7 @@ Access the plugin from the Wireshark menu:
 Tools → PacketReporter → Detailed Report (A4)
 ```
 
-![PacketReporter Screenshot](examples/packet-reporter-screenshot.png)
+![PacketReporter Screenshot](examples/Packet-Reporter-Samples.png)
 
 *Example of generated report with comprehensive network analysis and visualizations*
 
