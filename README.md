@@ -475,11 +475,6 @@ sudo apt install librsvg2-bin poppler-utils
 - Verify plugin permissions: `chmod 644 ~/.local/lib/wireshark/plugins/packet_reporter.lua`
 - Test with small capture files first
 
-## 🔗 Related Projects
-
-- [Wireshark](https://www.wireshark.org/) - Network protocol analyzer
-- [Tranalyzer](https://tranalyzer.com/) - Traffic flow analysis (inspiration)
-
 ## 📝 License
 
 GNU General Public License v2 - see [LICENSE](LICENSE) file for details.
