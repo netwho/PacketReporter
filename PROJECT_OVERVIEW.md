@@ -5,7 +5,7 @@
 **PacketReporter** is a comprehensive network analysis plugin for Wireshark that generates professional reports with charts and statistics. The project builds upon the existing Communication Matrix Circle View plugin to create a complete reporting suite.
 
 **Project Name:** PacketReporter  
-**Status:** ✅ Complete  
+**Status:** ✅ Public Beta  
 **Version:** 0.2.0  
 **Date:** October 25, 2025
 
