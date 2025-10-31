@@ -9,7 +9,7 @@
 [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20|%20Fedora%20|%20Arch-FCC624.svg?logo=linux&logoColor=black)](installers/linux/)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6.svg?logo=windows)](installers/windows/)
 
-A quick and easy way to create comprehensive network statistics reports directly from Wireshark. Generate detailed traffic analysis with visualizations and export to PDF in seconds.
+A Wireshark plugin for generating network analysis reports with visualizations and PDF export.
 
 > **⚠️ Beta Status**: This is version 0.2.0, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 
