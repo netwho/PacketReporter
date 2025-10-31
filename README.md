@@ -404,7 +404,7 @@ Structured similarly to Tranalyzer's output:
 
 ## Limitations
 
-Due to Wireshark Lua API constraints, some Tranalyzer features are not available:
+Due to Wireshark Lua API constraints, some planed features are not (yet) available:
 
 - **Country geolocation** - Requires external GeoIP database
 - **TLD/SLD extraction** - Complex string parsing not efficient in Lua
