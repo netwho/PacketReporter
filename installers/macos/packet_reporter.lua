@@ -681,27 +681,26 @@ local function get_reports_directory()
   local docs_dir = home .. sep .. "Documents"
   local reports_dir = docs_dir .. sep .. "PacketReporter Reports"
   
-  -- Check if Documents directory exists
-  local docs_test = io.open(docs_dir, "r")
-  if not docs_test then
-    -- Fall back to home directory if Documents doesn't exist
-    return home
-  end
-  io.close(docs_test)
-  
-  -- Create PacketReporter Reports directory if it doesn't exist
-  local reports_test = io.open(reports_dir, "r")
-  if not reports_test then
-    if IS_WINDOWS then
-      os.execute('mkdir "' .. reports_dir .. '" 2>NUL')
-    else
-      os.execute('mkdir -p "' .. reports_dir .. '"')
-    end
+  -- Try to create the reports directory (mkdir will succeed if Documents exists)
+  if IS_WINDOWS then
+    -- On Windows, use 'if not exist' to check and create
+    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" 2>NUL')
   else
-    io.close(reports_test)
+    -- On Unix, use mkdir -p
+    os.execute('mkdir -p "' .. reports_dir .. '" 2>/dev/null')
   end
   
-  return reports_dir
+  -- Test if the directory was created successfully by trying to create a test file
+  local test_file = reports_dir .. sep .. ".test"
+  local f = io.open(test_file, "w")
+  if f then
+    f:close()
+    os.remove(test_file)
+    return reports_dir
+  end
+  
+  -- If that failed, fall back to home directory
+  return home
 end
 
 local function open_pdf_with_default_app(pdf_path)
@@ -724,7 +723,8 @@ end
 local function export_single_page_pdf(svg_path, tw, tools, paper_size)
   local reports_dir = get_reports_directory()
   local stamp = os.date("%Y%m%d-%H%M%S")
-  local pdf_path = reports_dir .. "/PacketReporterSummary-" .. stamp .. ".pdf"
+  local sep = IS_WINDOWS and "\\" or "/"
+  local pdf_path = reports_dir .. sep .. "PacketReporterSummary-" .. stamp .. ".pdf"
   
   tw:append("Exporting PDF...\n")
   
@@ -769,7 +769,8 @@ end
 local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_size)
   local reports_dir = get_reports_directory()
   local stamp = os.date("%Y%m%d-%H%M%S")
-  local pdf_path = reports_dir .. "/PacketReport-" .. stamp .. ".pdf"
+  local sep = IS_WINDOWS and "\\" or "/"
+  local pdf_path = reports_dir .. sep .. "PacketReport-" .. stamp .. ".pdf"
   
   tw:append("Attempting multi-page PDF export...\n")
   tw:append("Reports directory: " .. reports_dir .. "\n")
@@ -938,41 +939,12 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     end
   end
   
-
-  if tools.inkscape then
-    tw:append("Trying Inkscape...\n")
-    local cmd
-    if IS_WINDOWS then
-      cmd = '"' .. tools.inkscape .. '" "' .. svg_path .. '" --export-type=pdf --export-filename="' .. pdf_path .. '"'
-    else
-      cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
-    end
-    if run_sh(cmd) then
-      tw:append("✓ Exported PDF via: " .. tools.inkscape .. " -> " .. pdf_path .. "\n")
-      return pdf_path
-    else
-      tw:append("✗ Inkscape failed\n")
-    end
-  end
-
-  if tools.magick then
-    tw:append("Trying ImageMagick...\n")
-    local magick_cmd = tools.magick:match("magick$") and (tools.magick .. " convert") or tools.magick
-    local cmd
-    if IS_WINDOWS then
-      cmd = magick_cmd .. ' "' .. svg_path .. '" "' .. pdf_path .. '"'
-    else
-      cmd = "sh -c '" .. magick_cmd .. " \"" .. svg_path .. "\" \"" .. pdf_path .. "\"'"
-    end
-    if run_sh(cmd) then
-      tw:append("✓ Exported PDF via: " .. tools.magick .. " -> " .. pdf_path .. "\n")
-      return pdf_path
-    else
-      tw:append("✗ ImageMagick failed\n")
-    end
-  end
-
-  tw:append("✗ PDF export not available (no converter succeeded).\n")
+  -- If rsvg not available, inkscape and imagemagick cannot be used for multi-page PDFs
+  -- as they don't support the same workflow
+  tw:append("✗ PDF export not available (rsvg-convert required for multi-page PDFs).\n")
+  tw:append("  Install rsvg-convert (recommended): brew install librsvg (macOS)\n")
+  tw:append("  Or: choco install rsvg-convert (Windows)\n")
+  tw:append("  Or: sudo apt install librsvg2-bin (Linux)\n")
   return nil
 end
 
