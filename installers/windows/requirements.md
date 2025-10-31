@@ -470,6 +470,9 @@ If you get DLL errors when running converters:
 - Npcap required (WinPcap deprecated)
 - Windows Defender may prompt - allow Wireshark
 
+### PDF Export Behavior
+**Note**: During multi-page PDF export, you may briefly see command prompt windows flash on screen. This is normal behavior when external tools (rsvg-convert, pdfunite) are being called. The windows will close automatically when processing completes.
+
 ### Windows Server
 - Supported on Server 2016+
 - May need to manually install .NET Framework
