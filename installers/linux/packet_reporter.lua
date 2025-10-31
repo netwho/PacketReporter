@@ -805,8 +805,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   local cover_page_svg = generate_cover_page(paper, config, toc_items)
   
-  -- Save cover page SVG
-  local cover_svg_path = os.tmpname() .. "_cover.svg"
+  -- Save cover page SVG to reports directory
+  local cover_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_cover.svg"
   local fh = io.open(cover_svg_path, "wb")
   if fh then
     fh:write(cover_page_svg)
@@ -819,10 +819,20 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   -- Create separate SVG for each page
   local page_svgs = {}
+  local page_svgs_temp = {}  -- Track temp files for PDF conversion
   
   -- Add cover page as first page if it was created successfully
   if cover_svg_path then
-    table.insert(page_svgs, cover_svg_path)
+    -- Create temp copy for PDF conversion
+    local temp_cover = os.tmpname() .. "_cover.svg"
+    local src = io.open(cover_svg_path, "rb")
+    local dst = io.open(temp_cover, "wb")
+    if src and dst then
+      dst:write(src:read("*all"))
+      src:close()
+      dst:close()
+      table.insert(page_svgs_temp, temp_cover)
+    end
   end
   
   -- Create content pages (starting from page 2 if cover exists)
@@ -840,13 +850,24 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     -- Add the original content (shifted to show this page)
     page_svg = page_svg .. svg_content .. '</g>\n</svg>\n'
     
-    -- Save page SVG
-    local page_svg_path = os.tmpname() .. "_page" .. page_num .. ".svg"
+    -- Save page SVG to reports directory
+    local page_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_page" .. page_num .. ".svg"
     local fh = io.open(page_svg_path, "wb")
     if fh then
       fh:write(page_svg)
       fh:close()
-      table.insert(page_svgs, page_svg_path)
+      
+      -- Create temp copy for PDF conversion
+      local temp_page = os.tmpname() .. "_page" .. page_num .. ".svg"
+      local src = io.open(page_svg_path, "rb")
+      local dst = io.open(temp_page, "wb")
+      if src and dst then
+        dst:write(src:read("*all"))
+        src:close()
+        dst:close()
+        table.insert(page_svgs_temp, temp_page)
+      end
+      
       local display_page = cover_svg_path and (page_num + 1) or page_num
       local display_total = cover_svg_path and (num_pages + 1) or num_pages
       tw:append(string.format("  Created page %d/%d\n", display_page, display_total))
@@ -861,8 +882,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
 
   if tools.rsvg then
     tw:append("Converting pages to PDF (this may take a moment)...\n")
-    local total_pages = #page_svgs
-    for i, svg_path in ipairs(page_svgs) do
+    local total_pages = #page_svgs_temp
+    for i, svg_path in ipairs(page_svgs_temp) do
       local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
       local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
       local handle = io.popen(cmd)
@@ -885,8 +906,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         end
       end
       
-      -- Don't clean up SVG yet for debugging
-      -- os.remove(svg_path)
+      -- Clean up temporary SVG
+      os.remove(svg_path)
     end
     tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
@@ -928,6 +949,7 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         local total_pages_display = cover_svg_path and (num_pages + 1) or num_pages
         tw:append("✓ Created multi-page PDF: " .. pdf_path .. "\n")
         tw:append(string.format("  Total pages: %d\n", total_pages_display))
+        tw:append(string.format("  SVG files also saved to: %s\n", reports_dir))
         
         -- Open PDF with default application
         tw:append("Opening PDF...\n")
