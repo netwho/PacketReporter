@@ -170,6 +170,13 @@ local function get_home_dir()
   return tmp:match("^(.*)[/\\]") or "."
 end
 
+-- Detect OS
+local function is_windows()
+  return package.config:sub(1,1) == '\\'
+end
+
+local IS_WINDOWS = is_windows()
+
 local function run_sh(cmd)
   local rc = os.execute(cmd)
   return rc == true or rc == 0
@@ -177,13 +184,34 @@ end
 
 local function find_cmd(candidates)
   local function in_path(name)
-    return run_sh("sh -c 'command -v "..name.." >/dev/null 2>&1'")
+    if IS_WINDOWS then
+      -- On Windows, try to run the command with --version to check if it exists
+      local handle = io.popen(name .. " --version 2>NUL", "r")
+      if handle then
+        local result = handle:read("*a")
+        local success = handle:close()
+        return success or (result and result ~= "")
+      end
+      return false
+    else
+      return run_sh("sh -c 'command -v "..name.." >/dev/null 2>&1'")
+    end
   end
   local function is_exec(path)
-    return run_sh("sh -c '[ -x "..path.." ]'")
+    if IS_WINDOWS then
+      -- On Windows, check if file exists
+      local f = io.open(path, "r")
+      if f then
+        f:close()
+        return true
+      end
+      return false
+    else
+      return run_sh("sh -c '[ -x "..path.." ]'")
+    end
   end
   for _,c in ipairs(candidates) do
-    if c:find("/") then
+    if c:find("/") or c:find("\\") then
       if is_exec(c) then return c end
     else
       if in_path(c) then return c end
@@ -649,29 +677,47 @@ end
 ------------------------------------------------------------
 local function get_reports_directory()
   local home = get_home_dir()
-  local docs_dir = home .. "/Documents"
-  local reports_dir = docs_dir .. "/PacketReporter Reports"
+  local sep = IS_WINDOWS and "\\" or "/"
+  local docs_dir = home .. sep .. "Documents"
+  local reports_dir = docs_dir .. sep .. "PacketReporter Reports"
   
   -- Check if Documents directory exists
-  local docs_exists = run_sh("sh -c '[ -d \"" .. docs_dir .. "\" ]'")
-  if not docs_exists then
+  local docs_test = io.open(docs_dir, "r")
+  if not docs_test then
     -- Fall back to home directory if Documents doesn't exist
     return home
   end
+  io.close(docs_test)
   
   -- Create PacketReporter Reports directory if it doesn't exist
-  local reports_exists = run_sh("sh -c '[ -d \"" .. reports_dir .. "\" ]'")
-  if not reports_exists then
-    run_sh("mkdir -p \"" .. reports_dir .. "\"")
+  local reports_test = io.open(reports_dir, "r")
+  if not reports_test then
+    if IS_WINDOWS then
+      os.execute('mkdir "' .. reports_dir .. '" 2>NUL')
+    else
+      os.execute('mkdir -p "' .. reports_dir .. '"')
+    end
+  else
+    io.close(reports_test)
   end
   
   return reports_dir
 end
 
 local function open_pdf_with_default_app(pdf_path)
-  -- Use 'open' command on macOS to open PDF with default application
-  local cmd = "open \"" .. pdf_path .. "\""
-  return run_sh(cmd)
+  if IS_WINDOWS then
+    -- On Windows, use 'start' command
+    local cmd = 'start "" "' .. pdf_path .. '"'
+    return run_sh(cmd)
+  else
+    -- On macOS/Linux, use 'open' or 'xdg-open'
+    local cmd = 'open "' .. pdf_path .. '"'
+    if not run_sh(cmd) then
+      cmd = 'xdg-open "' .. pdf_path .. '"'
+      return run_sh(cmd)
+    end
+    return true
+  end
 end
 
 -- Simple single-page PDF export for Summary Report
@@ -699,8 +745,14 @@ local function export_single_page_pdf(svg_path, tw, tools, paper_size)
     end
   end
   
+  
   if tools.inkscape then
-    local cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
+    local cmd
+    if IS_WINDOWS then
+      cmd = '"' .. tools.inkscape .. '" "' .. svg_path .. '" --export-type=pdf --export-filename="' .. pdf_path .. '"'
+    else
+      cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
+    end
     if run_sh(cmd) then
       tw:append("✓ PDF exported: " .. pdf_path .. "\n")
       if open_pdf_with_default_app(pdf_path) then
@@ -885,10 +937,16 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       return nil
     end
   end
+  
 
   if tools.inkscape then
     tw:append("Trying Inkscape...\n")
-    local cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
+    local cmd
+    if IS_WINDOWS then
+      cmd = '"' .. tools.inkscape .. '" "' .. svg_path .. '" --export-type=pdf --export-filename="' .. pdf_path .. '"'
+    else
+      cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
+    end
     if run_sh(cmd) then
       tw:append("✓ Exported PDF via: " .. tools.inkscape .. " -> " .. pdf_path .. "\n")
       return pdf_path
@@ -899,9 +957,14 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
 
   if tools.magick then
     tw:append("Trying ImageMagick...\n")
-    local cmd = tools.magick:match("magick$") and (tools.magick .. " convert") or tools.magick
-    local full = "sh -c '" .. cmd .. " \"" .. svg_path .. "\" \"" .. pdf_path .. "\"'"
-    if run_sh(full) then
+    local magick_cmd = tools.magick:match("magick$") and (tools.magick .. " convert") or tools.magick
+    local cmd
+    if IS_WINDOWS then
+      cmd = magick_cmd .. ' "' .. svg_path .. '" "' .. pdf_path .. '"'
+    else
+      cmd = "sh -c '" .. magick_cmd .. " \"" .. svg_path .. "\" \"" .. pdf_path .. "\"'"
+    end
+    if run_sh(cmd) then
       tw:append("✓ Exported PDF via: " .. tools.magick .. " -> " .. pdf_path .. "\n")
       return pdf_path
     else
