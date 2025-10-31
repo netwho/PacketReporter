@@ -9,7 +9,7 @@
 
 A quick and easy way to create comprehensive network statistics reports directly from Wireshark. Generate detailed traffic analysis with visualizations and export to PDF in seconds.
 
-> **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Requirements](#🛠️-requirements) section and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
+> **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Requirements](#🛠️PLATFORM_PREREQUISITES.md) section and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 
 ## ✨ Features
 
