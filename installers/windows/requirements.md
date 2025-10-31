@@ -2,6 +2,25 @@
 
 This document outlines all prerequisites and dependencies for installing and running PacketReporter on Windows.
 
+## Quick Prerequisites Check
+
+**Automated Check Script**: Before manually reviewing the requirements below, you can run our automated prerequisites check script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File check-prereqs.ps1
+```
+
+This script will:
+- ✓ Check for all required dependencies (Wireshark, Npcap)
+- ✓ Check for optional dependencies (SVG converters, PDF combiners)
+- ✓ Detect installed versions
+- ✓ Provide specific installation commands for missing dependencies
+- ✓ Verify plugin directory status
+
+**Location**: `installers/windows/check-prereqs.ps1`
+
+---
+
 ## System Requirements
 
 - **Operating System**: Windows 10 or later (Windows Server 2016+ also supported)
