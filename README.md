@@ -14,6 +14,10 @@ A quick and easy way to create comprehensive network statistics reports directly
 > **⚠️ Beta Status**: This is version 0.2.0, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
+>
+> **Note on Requirements**: If the plugin reports missing dependencies despite having the tools installed, ensure they are added to your system's PATH environment variable. This is the most common cause of dependency detection issues.
+>
+> **Windows Users**: You may briefly see command prompt windows flash on screen during Wireshark startup and report generation. This is expected behavior due to how the plugin invokes external tools and is purely cosmetic—it does not affect functionality.
 
 ## ✨ Features
 
