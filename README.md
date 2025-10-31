@@ -18,7 +18,7 @@ A quick and easy way to create comprehensive network statistics reports directly
 - 📄 **Multi-page PDF Export** - A4 and Legal paper sizes with intelligent page breaks
 - 🎯 **Filter Support** - Works seamlessly with Wireshark display filters
 - 🔍 **Deep Protocol Analysis** - DNS, TLS/SSL, HTTP, TCP, UDP, MAC layer statistics
-- 🚀 **Zero Dependencies** - Pure Lua implementation using Wireshark's built-in APIs
+- 🚀 **Wireshark Integrated** - Pure Lua implementation using Wireshark's built-in APIs
 - 💾 **Auto-save Reports** - Automatically saves to ~/Documents/PacketReporter Reports/
 - ⚡ **Fast Performance** - Efficient packet processing with Wireshark Listener API
 
