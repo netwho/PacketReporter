@@ -183,38 +183,38 @@ local function run_sh(cmd)
 end
 
 local function find_cmd(candidates)
-  local function in_path(name)
-    if IS_WINDOWS then
-      -- On Windows, try to run the command with --version to check if it exists
-      local handle = io.popen(name .. " --version 2>NUL", "r")
-      if handle then
-        local result = handle:read("*a")
-        local success = handle:close()
-        return success or (result and result ~= "")
-      end
-      return false
-    else
-      return run_sh("sh -c 'command -v "..name.." >/dev/null 2>&1'")
-    end
-  end
-  local function is_exec(path)
-    if IS_WINDOWS then
-      -- On Windows, check if file exists
-      local f = io.open(path, "r")
-      if f then
-        f:close()
-        return true
-      end
-      return false
-    else
-      return run_sh("sh -c '[ -x "..path.." ]'")
-    end
-  end
   for _,c in ipairs(candidates) do
     if c:find("/") or c:find("\\") then
-      if is_exec(c) then return c end
+      -- Full path candidate
+      if IS_WINDOWS then
+        local f = io.open(c, "r")
+        if f then
+          f:close()
+          return c
+        end
+      else
+        if run_sh("sh -c '[ -x "..c.." ]'") then
+          return c
+        end
+      end
     else
-      if in_path(c) then return c end
+      -- Command name in PATH
+      if IS_WINDOWS then
+        -- On Windows, try to run where.exe to find the command
+        local handle = io.popen("where " .. c .. " 2>NUL", "r")
+        if handle then
+          local result = handle:read("*a")
+          handle:close()
+          if result and result ~= "" and not result:match("Could not find") then
+            -- Command exists in PATH
+            return c
+          end
+        end
+      else
+        if run_sh("sh -c 'command -v "..c.." >/dev/null 2>&1'") then
+          return c
+        end
+      end
     end
   end
   return nil
