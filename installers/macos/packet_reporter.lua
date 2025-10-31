@@ -775,6 +775,15 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   tw:append("Attempting multi-page PDF export...\n")
   tw:append("Reports directory: " .. reports_dir .. "\n")
   
+  -- Debug: Show detected converters
+  tw:append("\nDetected converters:\n")
+  tw:append("  rsvg-convert: " .. (tools.rsvg or "NOT FOUND") .. "\n")
+  tw:append("  inkscape: " .. (tools.inkscape or "NOT FOUND") .. "\n")
+  tw:append("  imagemagick: " .. (tools.magick or "NOT FOUND") .. "\n")
+  tw:append("  pdfunite: " .. (tools.pdfunite or "NOT FOUND") .. "\n")
+  tw:append("  pdftk: " .. (tools.pdftk or "NOT FOUND") .. "\n")
+  tw:append("\n")
+  
   local paper = paper_size == "Legal" and PAPER_SIZES.LEGAL or PAPER_SIZES.A4
   local num_pages = math.ceil(total_height / paper.height)
   tw:append(string.format("  Creating %d pages (page size: %s, %dx%dpx)\n", num_pages, paper.name, paper.width, paper.height))
@@ -855,11 +864,11 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   local page_pdfs = {}
 
   if tools.rsvg then
-    tw:append("Converting pages to PDF...\n")
+    tw:append("Converting pages to PDF (this may take a moment)...\n")
+    local total_pages = #page_svgs
     for i, svg_path in ipairs(page_svgs) do
       local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
       local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
-      tw:append(string.format("  Running: %s\n", cmd:sub(1, 100)))
       local handle = io.popen(cmd)
       local result = handle:read("*a")
       local success = handle:close()
@@ -870,7 +879,6 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         if pdf_test then
           pdf_test:close()
           table.insert(page_pdfs, page_pdf_path)
-          tw:append(string.format("  ✓ Converted page %d\n", i))
         else
           tw:append(string.format("  ✗ Failed to convert page %d (PDF not created)\n", i))
         end
@@ -884,25 +892,32 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       -- Don't clean up SVG yet for debugging
       -- os.remove(svg_path)
     end
+    tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
     local expected_page_count = cover_svg_path and (num_pages + 1) or num_pages
     if #page_pdfs == expected_page_count then
       -- Combine PDFs using pdftk or pdfunite
       tw:append("Combining pages into single PDF...\n")
-      local pdf_list = table.concat(page_pdfs, ' ')
+      
+      -- Build quoted list of PDF paths
+      local pdf_list_parts = {}
+      for _, pdf in ipairs(page_pdfs) do
+        table.insert(pdf_list_parts, '"' .. pdf .. '"')
+      end
+      local pdf_list = table.concat(pdf_list_parts, ' ')
       
       local success = false
       local result = ""
       
       if tools.pdfunite then
         tw:append("  Using pdfunite: " .. tools.pdfunite .. "\n")
-        local combine_cmd = string.format('"%s" %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+        local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
       elseif tools.pdftk then
         tw:append("  Using pdftk: " .. tools.pdftk .. "\n")
-        local combine_cmd = string.format('"%s" %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+        local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
