@@ -183,38 +183,38 @@ local function run_sh(cmd)
 end
 
 local function find_cmd(candidates)
-  local function in_path(name)
-    if IS_WINDOWS then
-      -- On Windows, try to run the command with --version to check if it exists
-      local handle = io.popen(name .. " --version 2>NUL", "r")
-      if handle then
-        local result = handle:read("*a")
-        local success = handle:close()
-        return success or (result and result ~= "")
-      end
-      return false
-    else
-      return run_sh("sh -c 'command -v "..name.." >/dev/null 2>&1'")
-    end
-  end
-  local function is_exec(path)
-    if IS_WINDOWS then
-      -- On Windows, check if file exists
-      local f = io.open(path, "r")
-      if f then
-        f:close()
-        return true
-      end
-      return false
-    else
-      return run_sh("sh -c '[ -x "..path.." ]'")
-    end
-  end
   for _,c in ipairs(candidates) do
     if c:find("/") or c:find("\\") then
-      if is_exec(c) then return c end
+      -- Full path candidate
+      if IS_WINDOWS then
+        local f = io.open(c, "r")
+        if f then
+          f:close()
+          return c
+        end
+      else
+        if run_sh("sh -c '[ -x "..c.." ]'") then
+          return c
+        end
+      end
     else
-      if in_path(c) then return c end
+      -- Command name in PATH
+      if IS_WINDOWS then
+        -- On Windows, try to run where.exe to find the command
+        local handle = io.popen("where " .. c .. " 2>NUL", "r")
+        if handle then
+          local result = handle:read("*a")
+          handle:close()
+          if result and result ~= "" and not result:match("Could not find") then
+            -- Command exists in PATH
+            return c
+          end
+        end
+      else
+        if run_sh("sh -c 'command -v "..c.." >/dev/null 2>&1'") then
+          return c
+        end
+      end
     end
   end
   return nil
@@ -334,10 +334,6 @@ local function generate_cover_page(paper, config, toc_items)
     -- Page number (right)
     add(string.format('<text x="%d" y="%d" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#666">%d</text>\n',
       paper.width - 120, y_pos, item.page))
-    
-    -- Dotted line connecting title to page number
-    add(string.format('<line x1="120" y1="%d" x2="%d" y2="%d" stroke="#ddd" stroke-width="1" stroke-dasharray="3,3"/>\n',
-      y_pos - 5, paper.width - 120, y_pos - 5))
     
     y_pos = y_pos + 25
   end
@@ -681,27 +677,26 @@ local function get_reports_directory()
   local docs_dir = home .. sep .. "Documents"
   local reports_dir = docs_dir .. sep .. "PacketReporter Reports"
   
-  -- Check if Documents directory exists
-  local docs_test = io.open(docs_dir, "r")
-  if not docs_test then
-    -- Fall back to home directory if Documents doesn't exist
-    return home
-  end
-  io.close(docs_test)
-  
-  -- Create PacketReporter Reports directory if it doesn't exist
-  local reports_test = io.open(reports_dir, "r")
-  if not reports_test then
-    if IS_WINDOWS then
-      os.execute('mkdir "' .. reports_dir .. '" 2>NUL')
-    else
-      os.execute('mkdir -p "' .. reports_dir .. '"')
-    end
+  -- Try to create the reports directory (mkdir will succeed if Documents exists)
+  if IS_WINDOWS then
+    -- On Windows, use 'if not exist' to check and create
+    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" 2>NUL')
   else
-    io.close(reports_test)
+    -- On Unix, use mkdir -p
+    os.execute('mkdir -p "' .. reports_dir .. '" 2>/dev/null')
   end
   
-  return reports_dir
+  -- Test if the directory was created successfully by trying to create a test file
+  local test_file = reports_dir .. sep .. ".test"
+  local f = io.open(test_file, "w")
+  if f then
+    f:close()
+    os.remove(test_file)
+    return reports_dir
+  end
+  
+  -- If that failed, fall back to home directory
+  return home
 end
 
 local function open_pdf_with_default_app(pdf_path)
@@ -724,7 +719,8 @@ end
 local function export_single_page_pdf(svg_path, tw, tools, paper_size)
   local reports_dir = get_reports_directory()
   local stamp = os.date("%Y%m%d-%H%M%S")
-  local pdf_path = reports_dir .. "/PacketReporterSummary-" .. stamp .. ".pdf"
+  local sep = IS_WINDOWS and "\\" or "/"
+  local pdf_path = reports_dir .. sep .. "PacketReporterSummary-" .. stamp .. ".pdf"
   
   tw:append("Exporting PDF...\n")
   
@@ -769,10 +765,20 @@ end
 local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_size)
   local reports_dir = get_reports_directory()
   local stamp = os.date("%Y%m%d-%H%M%S")
-  local pdf_path = reports_dir .. "/PacketReport-" .. stamp .. ".pdf"
+  local sep = IS_WINDOWS and "\\" or "/"
+  local pdf_path = reports_dir .. sep .. "PacketReport-" .. stamp .. ".pdf"
   
   tw:append("Attempting multi-page PDF export...\n")
   tw:append("Reports directory: " .. reports_dir .. "\n")
+  
+  -- Debug: Show detected converters
+  tw:append("\nDetected converters:\n")
+  tw:append("  rsvg-convert: " .. (tools.rsvg or "NOT FOUND") .. "\n")
+  tw:append("  inkscape: " .. (tools.inkscape or "NOT FOUND") .. "\n")
+  tw:append("  imagemagick: " .. (tools.magick or "NOT FOUND") .. "\n")
+  tw:append("  pdfunite: " .. (tools.pdfunite or "NOT FOUND") .. "\n")
+  tw:append("  pdftk: " .. (tools.pdftk or "NOT FOUND") .. "\n")
+  tw:append("\n")
   
   local paper = paper_size == "Legal" and PAPER_SIZES.LEGAL or PAPER_SIZES.A4
   local num_pages = math.ceil(total_height / paper.height)
@@ -799,8 +805,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   local cover_page_svg = generate_cover_page(paper, config, toc_items)
   
-  -- Save cover page SVG
-  local cover_svg_path = os.tmpname() .. "_cover.svg"
+  -- Save cover page SVG to reports directory
+  local cover_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_cover.svg"
   local fh = io.open(cover_svg_path, "wb")
   if fh then
     fh:write(cover_page_svg)
@@ -813,10 +819,20 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   -- Create separate SVG for each page
   local page_svgs = {}
+  local page_svgs_temp = {}  -- Track temp files for PDF conversion
   
   -- Add cover page as first page if it was created successfully
   if cover_svg_path then
-    table.insert(page_svgs, cover_svg_path)
+    -- Create temp copy for PDF conversion
+    local temp_cover = os.tmpname() .. "_cover.svg"
+    local src = io.open(cover_svg_path, "rb")
+    local dst = io.open(temp_cover, "wb")
+    if src and dst then
+      dst:write(src:read("*all"))
+      src:close()
+      dst:close()
+      table.insert(page_svgs_temp, temp_cover)
+    end
   end
   
   -- Create content pages (starting from page 2 if cover exists)
@@ -834,13 +850,24 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     -- Add the original content (shifted to show this page)
     page_svg = page_svg .. svg_content .. '</g>\n</svg>\n'
     
-    -- Save page SVG
-    local page_svg_path = os.tmpname() .. "_page" .. page_num .. ".svg"
+    -- Save page SVG to reports directory
+    local page_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_page" .. page_num .. ".svg"
     local fh = io.open(page_svg_path, "wb")
     if fh then
       fh:write(page_svg)
       fh:close()
-      table.insert(page_svgs, page_svg_path)
+      
+      -- Create temp copy for PDF conversion
+      local temp_page = os.tmpname() .. "_page" .. page_num .. ".svg"
+      local src = io.open(page_svg_path, "rb")
+      local dst = io.open(temp_page, "wb")
+      if src and dst then
+        dst:write(src:read("*all"))
+        src:close()
+        dst:close()
+        table.insert(page_svgs_temp, temp_page)
+      end
+      
       local display_page = cover_svg_path and (page_num + 1) or page_num
       local display_total = cover_svg_path and (num_pages + 1) or num_pages
       tw:append(string.format("  Created page %d/%d\n", display_page, display_total))
@@ -854,11 +881,11 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   local page_pdfs = {}
 
   if tools.rsvg then
-    tw:append("Converting pages to PDF...\n")
-    for i, svg_path in ipairs(page_svgs) do
+    tw:append("Converting pages to PDF (this may take a moment)...\n")
+    local total_pages = #page_svgs_temp
+    for i, svg_path in ipairs(page_svgs_temp) do
       local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
       local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
-      tw:append(string.format("  Running: %s\n", cmd:sub(1, 100)))
       local handle = io.popen(cmd)
       local result = handle:read("*a")
       local success = handle:close()
@@ -869,7 +896,6 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         if pdf_test then
           pdf_test:close()
           table.insert(page_pdfs, page_pdf_path)
-          tw:append(string.format("  ✓ Converted page %d\n", i))
         else
           tw:append(string.format("  ✗ Failed to convert page %d (PDF not created)\n", i))
         end
@@ -880,28 +906,35 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         end
       end
       
-      -- Don't clean up SVG yet for debugging
-      -- os.remove(svg_path)
+      -- Clean up temporary SVG
+      os.remove(svg_path)
     end
+    tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
     local expected_page_count = cover_svg_path and (num_pages + 1) or num_pages
     if #page_pdfs == expected_page_count then
       -- Combine PDFs using pdftk or pdfunite
       tw:append("Combining pages into single PDF...\n")
-      local pdf_list = table.concat(page_pdfs, ' ')
+      
+      -- Build quoted list of PDF paths
+      local pdf_list_parts = {}
+      for _, pdf in ipairs(page_pdfs) do
+        table.insert(pdf_list_parts, '"' .. pdf .. '"')
+      end
+      local pdf_list = table.concat(pdf_list_parts, ' ')
       
       local success = false
       local result = ""
       
       if tools.pdfunite then
         tw:append("  Using pdfunite: " .. tools.pdfunite .. "\n")
-        local combine_cmd = string.format('"%s" %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+        local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
       elseif tools.pdftk then
         tw:append("  Using pdftk: " .. tools.pdftk .. "\n")
-        local combine_cmd = string.format('"%s" %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+        local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
@@ -916,6 +949,7 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         local total_pages_display = cover_svg_path and (num_pages + 1) or num_pages
         tw:append("✓ Created multi-page PDF: " .. pdf_path .. "\n")
         tw:append(string.format("  Total pages: %d\n", total_pages_display))
+        tw:append(string.format("  SVG files also saved to: %s\n", reports_dir))
         
         -- Open PDF with default application
         tw:append("Opening PDF...\n")
@@ -938,41 +972,12 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     end
   end
   
-
-  if tools.inkscape then
-    tw:append("Trying Inkscape...\n")
-    local cmd
-    if IS_WINDOWS then
-      cmd = '"' .. tools.inkscape .. '" "' .. svg_path .. '" --export-type=pdf --export-filename="' .. pdf_path .. '"'
-    else
-      cmd = "sh -c '\"" .. tools.inkscape .. "\" \"" .. svg_path .. "\" --export-type=pdf --export-filename=\"" .. pdf_path .. "\"'"
-    end
-    if run_sh(cmd) then
-      tw:append("✓ Exported PDF via: " .. tools.inkscape .. " -> " .. pdf_path .. "\n")
-      return pdf_path
-    else
-      tw:append("✗ Inkscape failed\n")
-    end
-  end
-
-  if tools.magick then
-    tw:append("Trying ImageMagick...\n")
-    local magick_cmd = tools.magick:match("magick$") and (tools.magick .. " convert") or tools.magick
-    local cmd
-    if IS_WINDOWS then
-      cmd = magick_cmd .. ' "' .. svg_path .. '" "' .. pdf_path .. '"'
-    else
-      cmd = "sh -c '" .. magick_cmd .. " \"" .. svg_path .. "\" \"" .. pdf_path .. "\"'"
-    end
-    if run_sh(cmd) then
-      tw:append("✓ Exported PDF via: " .. tools.magick .. " -> " .. pdf_path .. "\n")
-      return pdf_path
-    else
-      tw:append("✗ ImageMagick failed\n")
-    end
-  end
-
-  tw:append("✗ PDF export not available (no converter succeeded).\n")
+  -- If rsvg not available, inkscape and imagemagick cannot be used for multi-page PDFs
+  -- as they don't support the same workflow
+  tw:append("✗ PDF export not available (rsvg-convert required for multi-page PDFs).\n")
+  tw:append("  Install rsvg-convert (recommended): brew install librsvg (macOS)\n")
+  tw:append("  Or: choco install rsvg-convert (Windows)\n")
+  tw:append("  Or: sudo apt install librsvg2-bin (Linux)\n")
   return nil
 end
 
