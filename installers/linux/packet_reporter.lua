@@ -593,8 +593,46 @@ local function generate_table(data, title, x, y, width, columns)
   add(string.format('<text x="%d" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#111">%s</text>\n', 
     x, y - 10, xml_escape(title)))
   
-  -- Calculate column widths
-  local col_width = (width - 20) / #columns
+  -- Calculate column widths with custom sizing support
+  -- For number columns (rank, count, queries, requests, connections, packets), use fixed small width (~40-60px)
+  -- Give remaining space to text columns
+  local number_fields = {"rank", "count", "queries", "requests", "connections", "packets"}
+  local fixed_width = 60  -- Fixed width for number columns (supports 6 digits)
+  local num_number_cols = 0
+  local num_text_cols = 0
+  
+  for _, col in ipairs(columns) do
+    local is_number = false
+    for _, nf in ipairs(number_fields) do
+      if col.field == nf then
+        is_number = true
+        break
+      end
+    end
+    if is_number then
+      num_number_cols = num_number_cols + 1
+    else
+      num_text_cols = num_text_cols + 1
+    end
+  end
+  
+  -- Calculate remaining width for text columns
+  local remaining_width = width - 20 - (num_number_cols * fixed_width)
+  local text_col_width = num_text_cols > 0 and (remaining_width / num_text_cols) or 0
+  
+  -- Create column width mapping
+  local col_widths = {}
+  for i, col in ipairs(columns) do
+    local is_number = false
+    for _, nf in ipairs(number_fields) do
+      if col.field == nf then
+        is_number = true
+        break
+      end
+    end
+    col_widths[i] = is_number and fixed_width or text_col_width
+  end
+  
   local row_height = 22
   local header_y = y + 10
   
@@ -603,10 +641,12 @@ local function generate_table(data, title, x, y, width, columns)
     x, y, width, row_height))
   
   -- Header text
+  local cumulative_x = 0
   for i, col in ipairs(columns) do
-    local col_x = x + 10 + (i - 1) * col_width
+    local col_x = x + 10 + cumulative_x
     add(string.format('<text x="%.0f" y="%.0f" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#111" dominant-baseline="middle">%s</text>\n',
       col_x, y + row_height / 2, xml_escape(col.title)))
+    cumulative_x = cumulative_x + col_widths[i]
   end
   
   -- Data rows
@@ -624,19 +664,22 @@ local function generate_table(data, title, x, y, width, columns)
       x, row_y, x + width, row_y))
     
     -- Cell data
+    cumulative_x = 0
     for i, col in ipairs(columns) do
-      local col_x = x + 10 + (i - 1) * col_width
+      local col_x = x + 10 + cumulative_x
       local value = row_data[col.field] or ""
       
       -- Truncate if too long
       value = tostring(value)
-      local max_len = math.floor(col_width / 6.5)
+      local max_len = math.floor(col_widths[i] / 6.5)
       if #value > max_len then
         value = value:sub(1, max_len - 2) .. ".."
       end
       
       add(string.format('<text x="%.0f" y="%.0f" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#333">%s</text>\n',
         col_x, row_y + 14, xml_escape(value)))
+      
+      cumulative_x = cumulative_x + col_widths[i]
     end
   end
   
@@ -805,8 +848,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   local cover_page_svg = generate_cover_page(paper, config, toc_items)
   
-  -- Save cover page SVG to reports directory
-  local cover_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_cover.svg"
+  -- Save cover page SVG
+  local cover_svg_path = os.tmpname() .. "_cover.svg"
   local fh = io.open(cover_svg_path, "wb")
   if fh then
     fh:write(cover_page_svg)
@@ -819,20 +862,10 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   
   -- Create separate SVG for each page
   local page_svgs = {}
-  local page_svgs_temp = {}  -- Track temp files for PDF conversion
   
   -- Add cover page as first page if it was created successfully
   if cover_svg_path then
-    -- Create temp copy for PDF conversion
-    local temp_cover = os.tmpname() .. "_cover.svg"
-    local src = io.open(cover_svg_path, "rb")
-    local dst = io.open(temp_cover, "wb")
-    if src and dst then
-      dst:write(src:read("*all"))
-      src:close()
-      dst:close()
-      table.insert(page_svgs_temp, temp_cover)
-    end
+    table.insert(page_svgs, cover_svg_path)
   end
   
   -- Create content pages (starting from page 2 if cover exists)
@@ -850,24 +883,13 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     -- Add the original content (shifted to show this page)
     page_svg = page_svg .. svg_content .. '</g>\n</svg>\n'
     
-    -- Save page SVG to reports directory
-    local page_svg_path = reports_dir .. sep .. "PacketReport-" .. stamp .. "_page" .. page_num .. ".svg"
+    -- Save page SVG
+    local page_svg_path = os.tmpname() .. "_page" .. page_num .. ".svg"
     local fh = io.open(page_svg_path, "wb")
     if fh then
       fh:write(page_svg)
       fh:close()
-      
-      -- Create temp copy for PDF conversion
-      local temp_page = os.tmpname() .. "_page" .. page_num .. ".svg"
-      local src = io.open(page_svg_path, "rb")
-      local dst = io.open(temp_page, "wb")
-      if src and dst then
-        dst:write(src:read("*all"))
-        src:close()
-        dst:close()
-        table.insert(page_svgs_temp, temp_page)
-      end
-      
+      table.insert(page_svgs, page_svg_path)
       local display_page = cover_svg_path and (page_num + 1) or page_num
       local display_total = cover_svg_path and (num_pages + 1) or num_pages
       tw:append(string.format("  Created page %d/%d\n", display_page, display_total))
@@ -882,8 +904,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
 
   if tools.rsvg then
     tw:append("Converting pages to PDF (this may take a moment)...\n")
-    local total_pages = #page_svgs_temp
-    for i, svg_path in ipairs(page_svgs_temp) do
+    local total_pages = #page_svgs
+    for i, svg_path in ipairs(page_svgs) do
       local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
       local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
       local handle = io.popen(cmd)
@@ -906,8 +928,8 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         end
       end
       
-      -- Clean up temporary SVG
-      os.remove(svg_path)
+      -- Don't clean up SVG yet for debugging
+      -- os.remove(svg_path)
     end
     tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
@@ -949,7 +971,6 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         local total_pages_display = cover_svg_path and (num_pages + 1) or num_pages
         tw:append("✓ Created multi-page PDF: " .. pdf_path .. "\n")
         tw:append(string.format("  Total pages: %d\n", total_pages_display))
-        tw:append(string.format("  SVG files also saved to: %s\n", reports_dir))
         
         -- Open PDF with default application
         tw:append("Opening PDF...\n")
@@ -1431,8 +1452,12 @@ local function collect_tls_stats()
       elseif version == 0x0303 then version_str = "TLS 1.2"
       elseif version == 0x0304 then version_str = "TLS 1.3"
       elseif version == 0x0300 then version_str = "SSL 3.0"
-      else version_str = string.format("Unknown (0x%04x)", version) end
-      stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
+      else version_str = nil end  -- Don't record unknown versions
+      
+      -- Only record known TLS/SSL versions
+      if version_str then
+        stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
+      end
     end
     
     -- SNI (Server Name Indication)
