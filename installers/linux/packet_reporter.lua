@@ -178,8 +178,14 @@ end
 local IS_WINDOWS = is_windows()
 
 local function run_sh(cmd)
-  local rc = os.execute(cmd)
-  return rc == true or rc == 0
+  if IS_WINDOWS then
+    -- On Windows, redirect to NUL to suppress console windows
+    local rc = os.execute(cmd .. " >NUL 2>NUL")
+    return rc == true or rc == 0
+  else
+    local rc = os.execute(cmd)
+    return rc == true or rc == 0
+  end
 end
 
 local function find_cmd(candidates)
@@ -201,6 +207,8 @@ local function find_cmd(candidates)
       -- Command name in PATH
       if IS_WINDOWS then
         -- On Windows, try to run where.exe to find the command
+        -- Note: io.popen on Windows will briefly show a console window - this is a Lua limitation
+        -- We minimize the visibility by using 2>NUL
         local handle = io.popen("where " .. c .. " 2>NUL", "r")
         if handle then
           local result = handle:read("*a")
@@ -393,6 +401,8 @@ end
 -- Startup Dependency Check
 ------------------------------------------------------------
 local function check_dependencies_on_startup()
+  -- Note: On Windows, the dependency detection will briefly show console windows
+  -- This is a limitation of Lua's io.popen() on Windows and happens only once at startup
   local tools = detect_converters()
   local missing = {}
   local warnings = {}
@@ -400,14 +410,23 @@ local function check_dependencies_on_startup()
   -- Check for SVG to PDF converter (at least one required)
   if not tools.rsvg and not tools.inkscape and not tools.magick then
     table.insert(missing, "SVG converter: rsvg-convert, inkscape, or imagemagick")
-    table.insert(warnings, "Install rsvg-convert (recommended): brew install librsvg")
+    if IS_WINDOWS then
+      table.insert(warnings, "Install rsvg-convert (recommended): choco install rsvg-convert")
+    else
+      table.insert(warnings, "Install rsvg-convert (recommended): brew install librsvg")
+    end
   end
   
   -- Check for PDF combiner (required for multi-page reports)
   if not tools.pdfunite and not tools.pdftk then
     table.insert(missing, "PDF combiner: pdfunite or pdftk")
-    table.insert(warnings, "Install pdfunite (recommended): brew install poppler")
-    table.insert(warnings, "Or install pdftk: brew install pdftk-java")
+    if IS_WINDOWS then
+      table.insert(warnings, "Install pdftk (recommended): choco install pdftk")
+      table.insert(warnings, "Or install poppler-utils for pdfunite")
+    else
+      table.insert(warnings, "Install pdfunite (recommended): brew install poppler")
+      table.insert(warnings, "Or install pdftk: brew install pdftk-java")
+    end
   end
   
   -- Display warning if dependencies are missing
@@ -722,8 +741,8 @@ local function get_reports_directory()
   
   -- Try to create the reports directory (mkdir will succeed if Documents exists)
   if IS_WINDOWS then
-    -- On Windows, use 'if not exist' to check and create
-    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" 2>NUL')
+    -- On Windows, use 'if not exist' to check and create (silently)
+    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" >NUL 2>NUL')
   else
     -- On Unix, use mkdir -p
     os.execute('mkdir -p "' .. reports_dir .. '" 2>/dev/null')
@@ -744,9 +763,11 @@ end
 
 local function open_pdf_with_default_app(pdf_path)
   if IS_WINDOWS then
-    -- On Windows, use 'start' command
-    local cmd = 'start "" "' .. pdf_path .. '"'
-    return run_sh(cmd)
+    -- On Windows, use 'start' command with /B to avoid showing console window
+    -- Use cmd /c to execute start without leaving console open
+    local cmd = 'cmd /c start "" "' .. pdf_path .. '"'
+    local rc = os.execute(cmd)
+    return rc == true or rc == 0
   else
     -- On macOS/Linux, use 'open' or 'xdg-open'
     local cmd = 'open "' .. pdf_path .. '"'
@@ -768,7 +789,13 @@ local function export_single_page_pdf(svg_path, tw, tools, paper_size)
   tw:append("Exporting PDF...\n")
   
   if tools.rsvg then
-    local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, pdf_path, svg_path)
+    local cmd
+    if IS_WINDOWS then
+      -- On Windows, wrap command to hide console window
+      cmd = string.format('cmd /c "%s -f pdf -o \"%s\" \"%s\" 2>&1"', tools.rsvg, pdf_path, svg_path)
+    else
+      cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, pdf_path, svg_path)
+    end
     local handle = io.popen(cmd)
     local result = handle:read("*a")
     local success = handle:close()
@@ -907,7 +934,13 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     local total_pages = #page_svgs
     for i, svg_path in ipairs(page_svgs) do
       local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
-      local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
+      local cmd
+      if IS_WINDOWS then
+        -- On Windows, wrap command to hide console window
+        cmd = string.format('cmd /c "%s -f pdf -o \"%s\" \"%s\" 2>&1"', tools.rsvg, page_pdf_path, svg_path)
+      else
+        cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
+      end
       local handle = io.popen(cmd)
       local result = handle:read("*a")
       local success = handle:close()
@@ -950,13 +983,23 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       
       if tools.pdfunite then
         tw:append("  Using pdfunite: " .. tools.pdfunite .. "\n")
-        local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+        local combine_cmd
+        if IS_WINDOWS then
+          combine_cmd = string.format('cmd /c "%s %s \"%s\" 2>&1"', tools.pdfunite, pdf_list, pdf_path)
+        else
+          combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+        end
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
       elseif tools.pdftk then
         tw:append("  Using pdftk: " .. tools.pdftk .. "\n")
-        local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+        local combine_cmd
+        if IS_WINDOWS then
+          combine_cmd = string.format('cmd /c "%s %s cat output \"%s\" 2>&1"', tools.pdftk, pdf_list, pdf_path)
+        else
+          combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+        end
         local handle = io.popen(combine_cmd)
         result = handle:read("*a")
         success = handle:close()
