@@ -16,6 +16,7 @@ A Wireshark plugin for generating network analysis reports with visualizations a
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 >
 > **Windows Users**: Ensure external tools are added to your system PATH. You may briefly see command prompt windows flash during startup and report generation—this is expected behavior and purely cosmetic.
+> (I could impplement a more silent behaviour by invoking a VBScript Wrapper - Not worth it on my opinion)
 
 ## ✨ Features
 
