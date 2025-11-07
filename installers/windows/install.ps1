@@ -1,6 +1,9 @@
 # PacketReporter - Windows Installation Script
 # Installs the PacketReporter plugin with prerequisite checks
 # Run with: powershell -ExecutionPolicy Bypass -File install.ps1
+#
+# Note: All external command calls redirect stderr to $null to suppress
+# console windows. This provides a cleaner installation experience.
 
 # Enable strict mode
 Set-StrictMode -Version Latest
@@ -86,7 +89,7 @@ if (-not $wiresharkFound) {
 # Check for Chocolatey (optional package manager)
 Write-Info "Checking for Chocolatey..."
 if (Get-Command choco -ErrorAction SilentlyContinue) {
-    $chocoVersion = (choco --version)
+    $chocoVersion = (choco --version 2>$null)
     Write-Success "Chocolatey found (version: $chocoVersion)"
 } else {
     Write-Warning "Chocolatey not found (optional but recommended)"

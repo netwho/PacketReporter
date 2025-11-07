@@ -1,6 +1,9 @@
 # PacketReporter - Windows Prerequisites Check Script
 # Checks system for required and optional dependencies
 # Run with: powershell -ExecutionPolicy Bypass -File check-prereqs.ps1
+#
+# Note: All external command calls redirect stderr to $null to suppress
+# console windows during version checks. This provides a cleaner experience.
 
 # Enable strict mode
 Set-StrictMode -Version Latest
@@ -131,7 +134,7 @@ $hasConverter = $false
 Write-Info "Checking for rsvg-convert (recommended - fastest)..."
 if (Get-Command rsvg-convert -ErrorAction SilentlyContinue) {
     try {
-        $rsvgVersion = (rsvg-convert --version 2>&1) | Select-Object -First 1
+        $rsvgVersion = (rsvg-convert --version 2>$null) | Select-Object -First 1
         Write-Success "rsvg-convert found"
         Write-Output "  Version: $rsvgVersion"
         $hasConverter = $true
@@ -158,7 +161,7 @@ foreach ($path in $inkscapePaths) {
         Write-Success "Inkscape found"
         Write-Output "  Path: $path"
         try {
-            $inkscapeVersion = (& $path --version 2>&1) | Select-Object -First 1
+            $inkscapeVersion = (& $path --version 2>$null) | Select-Object -First 1
             Write-Output "  Version: $inkscapeVersion"
         } catch {}
         $inkscapeFound = $true
@@ -178,7 +181,7 @@ Write-Info "Checking for ImageMagick (alternative)..."
 $magickFound = $false
 if (Get-Command magick -ErrorAction SilentlyContinue) {
     try {
-        $magickVersion = (magick --version 2>&1) | Select-Object -First 1
+        $magickVersion = (magick --version 2>$null) | Select-Object -First 1
         Write-Success "ImageMagick found (magick)"
         Write-Output "  Version: $magickVersion"
         $magickFound = $true
@@ -190,7 +193,7 @@ if (Get-Command magick -ErrorAction SilentlyContinue) {
     }
 } elseif (Get-Command convert -ErrorAction SilentlyContinue) {
     try {
-        $convertVersion = (convert --version 2>&1) | Select-Object -First 1
+        $convertVersion = (convert --version 2>$null) | Select-Object -First 1
         Write-Success "ImageMagick found (convert)"
         Write-Output "  Version: $convertVersion"
         $magickFound = $true
@@ -218,7 +221,7 @@ $hasCombiner = $false
 Write-Info "Checking for pdfunite (recommended)..."
 if (Get-Command pdfunite -ErrorAction SilentlyContinue) {
     try {
-        $pdfuniteVersion = (pdfunite --version 2>&1) | Select-Object -First 1
+        $pdfuniteVersion = (pdfunite --version 2>$null) | Select-Object -First 1
         Write-Success "pdfunite found"
         Write-Output "  Version: $pdfuniteVersion"
         $hasCombiner = $true
@@ -237,7 +240,7 @@ Write-Output ""
 Write-Info "Checking for pdftk (alternative)..."
 if (Get-Command pdftk -ErrorAction SilentlyContinue) {
     try {
-        $pdftkVersion = (pdftk --version 2>&1) | Select-Object -First 1
+        $pdftkVersion = (pdftk --version 2>$null) | Select-Object -First 1
         Write-Success "pdftk found"
         Write-Output "  Version: $pdftkVersion"
         $hasCombiner = $true
@@ -263,7 +266,7 @@ Write-Output ""
 Write-Info "Checking for Chocolatey..."
 if (Get-Command choco -ErrorAction SilentlyContinue) {
     try {
-        $chocoVersion = (choco --version 2>&1)
+        $chocoVersion = (choco --version 2>$null)
         Write-Success "Chocolatey found"
         Write-Output "  Version: $chocoVersion"
     } catch {
