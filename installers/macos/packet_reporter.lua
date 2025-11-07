@@ -865,12 +865,13 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     {title = "3. Protocol Distribution", page = 3},
     {title = "4. IP Communication Matrix", page = 3},
     {title = "5. Port Analysis", page = 4},
-    {title = "6. DNS Analysis", page = 5},
-    {title = "7. TLS/SSL Analysis", page = 7},
-    {title = "8. HTTP Analysis", page = 8},
-    {title = "9. MAC Layer Analysis", page = 9},
-    {title = "10. IP Layer Analysis", page = 10},
-    {title = "11. TCP Analysis", page = 11}
+    {title = "6. Protocol Hierarchy", page = 5},
+    {title = "7. DNS Analysis", page = 6},
+    {title = "8. TLS/SSL Analysis", page = 8},
+    {title = "9. HTTP Analysis", page = 9},
+    {title = "10. MAC Layer Analysis", page = 10},
+    {title = "11. IP Layer Analysis", page = 11},
+    {title = "12. TCP Analysis", page = 12}
   }
   
   local cover_page_svg = generate_cover_page(paper, config, toc_items)
@@ -1444,6 +1445,210 @@ local function collect_tcp_stats()
   return stats
 end
 
+-- Collect Protocol Hierarchy statistics
+local function collect_protocol_hierarchy()
+  local hierarchy = {}
+  local total_packets = 0
+  
+  local tap = Listener.new("frame", nil)
+  
+  function tap.packet(pinfo, tvb)
+    total_packets = total_packets + 1
+    
+    -- Get full protocol stack (this includes ALL protocols: eth:ethertype:ip:tcp:http:png, etc.)
+    local protocols = f2s(f_frame_protocols) or ""
+    if protocols ~= "" then
+      -- Store the exact protocol string as seen by Wireshark
+      hierarchy[protocols] = (hierarchy[protocols] or 0) + 1
+    end
+  end
+  
+  retap_packets()
+  tap:remove()
+  
+  -- Build tree structure from protocol strings
+  -- The key insight: protocols are separated by colons in the order they appear in the stack
+  -- Example: "eth:ethertype:ip:tcp:http:image-jfif" means eth->ip->tcp->http->jfif
+  local tree = {}
+  local proto_totals = {}
+  
+  for proto_string, count in pairs(hierarchy) do
+    local parts = {}
+    -- Split on colon to get individual protocols
+    for part in proto_string:gmatch("([^:]+)") do
+      table.insert(parts, part)
+    end
+    
+    -- Build hierarchical tree
+    -- Each protocol is a child of the previous one in the chain
+    local current = tree
+    for i, part in ipairs(parts) do
+      if not current[part] then
+        current[part] = {count = 0, children = {}, depth = i - 1}
+      end
+      current[part].count = current[part].count + count
+      proto_totals[part] = (proto_totals[part] or 0) + count
+      current = current[part].children
+    end
+  end
+  
+  return {
+    tree = tree,
+    totals = proto_totals,
+    total_packets = total_packets
+  }
+end
+
+-- Generate Protocol Hierarchy Tree visualization
+local function generate_protocol_tree(tree, totals, total_packets, x, y, width, max_height)
+  local out = {}
+  local function add(s) table.insert(out, s) end
+  
+  if not tree or not totals then return "", 0 end
+  
+  -- Sort protocols by packet count
+  local sorted_protos = {}
+  for proto, count in pairs(totals) do
+    table.insert(sorted_protos, {name = proto, count = count})
+  end
+  table.sort(sorted_protos, function(a, b) return a.count > b.count end)
+  
+  -- Limit display to fit on page
+  -- We'll limit by total items rendered, not by unique protocols
+  -- This allows us to show the hierarchy properly
+  local max_items = 100  -- Increased significantly to capture deep protocols
+  local display_protos = {}
+  for i = 1, math.min(max_items, #sorted_protos) do
+    display_protos[sorted_protos[i].name] = true
+  end
+  
+  -- Draw tree with indentation
+  local line_height = 20
+  local indent_width = 25
+  local current_y = y
+  
+  -- Track total items rendered to enforce page limit
+  local items_rendered = 0
+  local max_total_items = 45  -- Increased to show more protocols like SMB, HTTP content, etc.
+  
+  -- Track if we truncated the display
+  local truncated = false
+  
+  -- Recursive function to draw tree nodes
+  local function draw_node(node, name, indent, parent_count)
+    -- Stop if we exceed height or item limits
+    if current_y - y > max_height or items_rendered >= max_total_items then
+      truncated = true
+      return false
+    end
+    
+    -- For deeper levels (indent > 1), only skip if very insignificant (< 0.1% of parent)
+    if indent > 1 and parent_count > 0 then
+      local percentage = (node.count / parent_count) * 100
+      if percentage < 0.1 then
+        return true  -- Skip very insignificant protocols
+      end
+    end
+    
+    items_rendered = items_rendered + 1
+    
+    local node_x = x + indent * indent_width
+    local percentage = (node.count / total_packets) * 100
+    
+    -- Draw connector line from parent
+    if indent > 0 then
+      add(string.format('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#999" stroke-width="1" stroke-dasharray="2,2"/>\n',
+        node_x - indent_width + 10, current_y - line_height/2, node_x - 5, current_y + 4))
+    end
+    
+    -- Draw protocol box with color gradient by depth
+    local box_width = math.min(200, width - (indent * indent_width) - 20)
+    local color = "#e8f4f8"
+    if indent == 0 then
+      color = "#2C7BB6"  -- Dark blue for L2 (eth, wlan)
+    elseif indent == 1 then
+      color = "#00A6CA"  -- Cyan for ethertype/arp
+    elseif indent == 2 then
+      color = "#90EE90"  -- Light green for L3 (ip, ipv6)
+    elseif indent == 3 then
+      color = "#FFD700"  -- Gold for L4 (tcp, udp, icmp)
+    elseif indent == 4 then
+      color = "#FF8C42"  -- Orange for L5-L7 (http, nbss, dns, tls)
+    elseif indent == 5 then
+      color = "#FF6B6B"  -- Red for application (smb, smb2, http content-type)
+    elseif indent == 6 then
+      color = "#DA70D6"  -- Orchid for content (png, jpeg, javascript, json)
+    else
+      color = "#DDA0DD"  -- Plum for deep content
+    end
+    
+    -- Box
+    add(string.format('<rect x="%d" y="%d" width="%d" height="%d" fill="%s" fill-opacity="%s" stroke="#666" stroke-width="0.5" rx="3"/>\n',
+      node_x, current_y, box_width, 16, color, indent == 0 and "1" or "0.3"))
+    
+    -- Protocol name
+    local display_name = name
+    if #display_name > 22 then
+      display_name = display_name:sub(1, 20) .. ".."
+    end
+    
+    add(string.format('<text x="%d" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="%s" fill="%s">%s</text>\n',
+      node_x + 5, current_y + 11, indent == 0 and "700" or "400", indent == 0 and "white" or "#333", xml_escape(display_name)))
+    
+    -- Packet count and percentage
+    add(string.format('<text x="%d" y="%d" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="%s">%d (%.1f%%)</text>\n',
+      node_x + box_width - 5, current_y + 11, indent == 0 and "white" or "#666", node.count, percentage))
+    
+    current_y = current_y + line_height
+    
+    -- Draw children (show up to 7 levels deep to capture: eth->ip->tcp->nbss->smb->smb2->...
+    -- or eth->ip->tcp->http->content->image-jfif->...)
+    if indent < 7 and node.children then
+      local children = {}
+      for child_name, child_node in pairs(node.children) do
+        -- Include all children, don't filter by display_protos here
+        -- The filtering happens in draw_node based on significance
+        table.insert(children, {name = child_name, node = child_node})
+      end
+      table.sort(children, function(a, b) return a.node.count > b.node.count end)
+      
+      for _, child in ipairs(children) do
+        if not draw_node(child.node, child.name, indent + 1, node.count) then
+          return false
+        end
+      end
+    end
+    
+    return true
+  end
+  
+  -- Draw top-level protocols
+  local top_protos = {}
+  for proto, node in pairs(tree) do
+    if display_protos[proto] then
+      table.insert(top_protos, {name = proto, node = node})
+    end
+  end
+  table.sort(top_protos, function(a, b) return a.node.count > b.node.count end)
+  
+  for _, proto in ipairs(top_protos) do
+    if not draw_node(proto.node, proto.name, 0, total_packets) then
+      break
+    end
+  end
+  
+  -- Add truncation notice if needed
+  if truncated then
+    current_y = current_y + 20  -- Empty line before truncation notice
+    add(string.format('<text x="%d" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic" fill="#999">... list truncated to fit page (showing %d items)</text>\n',
+      x, current_y + 5, items_rendered))
+    current_y = current_y + 20
+  end
+  
+  local total_height = current_y - y + 10
+  return table.concat(out), total_height
+end
+
 -- Collect TLS/SSL statistics
 local function collect_tls_stats()
   local stats = {
@@ -1695,6 +1900,7 @@ local function generate_detailed_report_internal()
   local ip_stats = collect_ip_stats()
   local tcp_stats = collect_tcp_stats()
   local tls_stats = collect_tls_stats()
+  local proto_hierarchy = collect_protocol_hierarchy()
   
   if basic_stats.total_packets == 0 then
     tw:append("No packets found in current capture.\n")
@@ -2064,7 +2270,27 @@ local function generate_detailed_report_internal()
   end
   y_pos = y_pos + 240
   
-  -- Section 6: DNS Analysis (Table View) - Force to new page
+  -- Section 6: Protocol Hierarchy - New section
+  force_page_break_if_needed_legal(600)  -- Legal: ensure section fits
+  check_page_boundary(600)  -- Need enough space for tree
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">6. Protocol Hierarchy</text>\n', y_pos))
+  y_pos = y_pos + 30
+  
+  if proto_hierarchy and proto_hierarchy.tree then
+    local tree_svg, tree_height = generate_protocol_tree(
+      proto_hierarchy.tree,
+      proto_hierarchy.totals,
+      proto_hierarchy.total_packets,
+      60, y_pos, paper.width - 120, 700  -- Max height ~700px to fit on A4
+    )
+    add(tree_svg)
+    y_pos = y_pos + tree_height + 30
+  else
+    add(string.format('<text x="70" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#666">No protocol hierarchy data available</text>\n', y_pos))
+    y_pos = y_pos + 30
+  end
+  
+  -- Section 7: DNS Analysis (Table View) - Force to new page (renumbered from 6)
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2075,11 +2301,11 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">6. DNS Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">7. DNS Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   if #top_10_dns_queries > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.1 Top 10 DNS Queries</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 Top 10 DNS Queries</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare DNS table data and pad to 10 rows
@@ -2119,10 +2345,10 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 30
   end
   
-  -- 6.2 DNS Record Types
+  -- 7.2 DNS Record Types (renumbered from 6.2)
   local top_record_types = dict_to_sorted_array(dns_stats.record_types, 10)
   if #top_record_types > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.2 DNS Record Types Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.2 DNS Record Types Distribution</text>\n', y_pos))
     y_pos = y_pos + 25
     
     -- Pie chart for record types
@@ -2130,9 +2356,9 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 240
   end
   
-  -- 6.3 Authoritative vs Non-Authoritative Responses
+  -- 7.3 Authoritative vs Non-Authoritative Responses (renumbered from 6.3)
   if dns_stats.total_responses > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.3 DNS Response Analysis</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.3 DNS Response Analysis</text>\n', y_pos))
     y_pos = y_pos + 25
     
     local response_data = {
@@ -2148,7 +2374,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 40
   end
   
-  -- Section 7: TLS/SSL Analysis - Force to new page
+  -- Section 8: TLS/SSL Analysis - Force to new page (renumbered from 7)
   local top_tls_versions = dict_to_sorted_array(tls_stats.versions, 10)
   local top_sni_names = dict_to_sorted_array(tls_stats.sni_names, 10)
   local top_cert_names = dict_to_sorted_array(tls_stats.cert_common_names, 10)
@@ -2162,12 +2388,12 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">7. TLS/SSL Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">8. TLS/SSL Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- TLS Version distribution (horizontal bar chart)
     if #top_tls_versions > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 TLS/SSL Version Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.1 TLS/SSL Version Distribution</text>\n', y_pos))
       y_pos = y_pos + 25
       
       local bar_height = 30
@@ -2206,7 +2432,7 @@ local function generate_detailed_report_internal()
     
     -- Top SNI names
     if #top_sni_names > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.2 Top 10 TLS Server Names (SNI)</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.2 Top 10 TLS Server Names (SNI)</text>\n', y_pos))
       y_pos = y_pos + 20
       
       local sni_table_data = {}
@@ -2228,7 +2454,7 @@ local function generate_detailed_report_internal()
     
     -- Top certificate names (if available)
     if #top_cert_names > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.3 Top 10 Certificate Common Names</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.3 Top 10 Certificate Common Names</text>\n', y_pos))
       y_pos = y_pos + 20
       
       local cert_table_data = {}
@@ -2256,7 +2482,7 @@ local function generate_detailed_report_internal()
     end
   end
   
-  -- Section 8: HTTP Analysis - Force to new page
+  -- Section 9: HTTP Analysis - Force to new page
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2264,11 +2490,11 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">8. HTTP Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">9. HTTP Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   if #top_10_http_ua > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.1 Top 10 HTTP User-Agents</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.1 Top 10 HTTP User-Agents</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare User-Agent table data and pad to 10 rows
@@ -2293,7 +2519,7 @@ local function generate_detailed_report_internal()
   end
   
   if #top_10_http_hosts > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.2 Top 10 HTTP Hosts</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.2 Top 10 HTTP Hosts</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare Hosts table data and pad to 10 rows
@@ -2315,7 +2541,7 @@ local function generate_detailed_report_internal()
   end
   
   if #top_5_http_codes > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.3 HTTP Status Codes</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.3 HTTP Status Codes</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Generate horizontal bar chart for status codes
@@ -2353,7 +2579,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + (#top_5_http_codes * (bar_height + 8)) + 20
   end
   
-  -- Section 9: MAC Layer Analysis - Force to new page
+  -- Section 10: MAC Layer Analysis - Force to new page
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2361,13 +2587,13 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">9. MAC Layer Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">10. MAC Layer Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   -- Traffic type (broadcast/multicast/unicast)
   local total_frames = mac_stats.broadcast + mac_stats.multicast + mac_stats.unicast
   if total_frames > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.1 Traffic Type Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.1 Traffic Type Distribution</text>\n', y_pos))
     y_pos = y_pos + 20
     
     local traffic_types = {
@@ -2382,7 +2608,7 @@ local function generate_detailed_report_internal()
   -- Frame sizes
   local frame_size_data = dict_to_sorted_array(mac_stats.frame_sizes, 10)
   if #frame_size_data > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.2 Frame Size Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 Frame Size Distribution</text>\n', y_pos))
     y_pos = y_pos + 30
     add(generate_bar_chart(frame_size_data, "", 50, y_pos, paper.width - 100, 200, false))
     y_pos = y_pos + 250
@@ -2391,7 +2617,7 @@ local function generate_detailed_report_internal()
   -- Top vendors
   local top_vendors = dict_to_sorted_array(mac_stats.vendors, 10)
   if #top_vendors > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.3 Top 10 MAC Vendors</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.3 Top 10 MAC Vendors</text>\n', y_pos))
     y_pos = y_pos + 20
     
     local vendor_table_data = {}
@@ -2411,7 +2637,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + vendor_height + 30
   end
   
-  -- Section 10: IP Layer Analysis - Force to new page
+  -- Section 11: IP Layer Analysis - Force to new page
   if ip_stats.total_packets > 0 then
     local bottom_margin = 60
     local page_usable_height = paper.height - bottom_margin
@@ -2420,13 +2646,13 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">10. IP Layer Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">11. IP Layer Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- TTL distribution
     local ttl_data = dict_to_sorted_array(ip_stats.ttl, 10)
     if #ttl_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.1 TTL Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.1 TTL Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(ttl_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2434,7 +2660,7 @@ local function generate_detailed_report_internal()
     
     -- Fragmentation stats
     if ip_stats.fragmented > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 IP Fragmentation</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 IP Fragmentation</text>\n', y_pos))
       y_pos = y_pos + 25
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#555">Fragmented Packets: <tspan fill="#333" font-weight="700">%d</tspan></text>\n', y_pos, ip_stats.fragmented))
       y_pos = y_pos + 18
@@ -2442,32 +2668,32 @@ local function generate_detailed_report_internal()
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#555">Fragmentation Rate: <tspan fill="#333" font-weight="700">%.2f%%</tspan></text>\n', y_pos, frag_pct))
       y_pos = y_pos + 30
     else
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 IP Fragmentation</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 IP Fragmentation</text>\n', y_pos))
       y_pos = y_pos + 25
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#666">No IP fragmentation detected</text>\n', y_pos))
       y_pos = y_pos + 40
     end
     
-    -- 10.3 DSCP Distribution
+    -- 11.3 DSCP Distribution
     local dscp_data = dict_to_sorted_array(ip_stats.dscp, 10)
     if #dscp_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.3 DSCP (Differentiated Services) Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.3 DSCP (Differentiated Services) Distribution</text>\n', y_pos))
       y_pos = y_pos + 25
       add(generate_pie_chart(dscp_data, "", paper.width/2, y_pos + 100, 90, true))
       y_pos = y_pos + 240
     end
     
-    -- 10.4 IP Protocol Distribution
+    -- 11.4 IP Protocol Distribution
     local proto_data = dict_to_sorted_array(ip_stats.protocols, 10)
     if #proto_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.4 IP Protocol Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.4 IP Protocol Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(proto_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
     end
   end
   
-  -- Section 11: TCP Analysis - Force to new page
+  -- Section 12: TCP Analysis - Force to new page
   if tcp_stats.total_packets > 0 then
     local bottom_margin = 60
     local page_usable_height = paper.height - bottom_margin
@@ -2476,13 +2702,13 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">11. TCP Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">12. TCP Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- Window size distribution
     local window_data = dict_to_sorted_array(tcp_stats.window_sizes, 10)
     if #window_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.1 TCP Window Size Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.1 TCP Window Size Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(window_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2491,7 +2717,7 @@ local function generate_detailed_report_internal()
     -- Segment size distribution
     local segment_data = dict_to_sorted_array(tcp_stats.segment_sizes, 10)
     if #segment_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 TCP Segment Size Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.2 TCP Segment Size Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(segment_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2500,7 +2726,7 @@ local function generate_detailed_report_internal()
     -- RTT distribution
     local rtt_data = dict_to_sorted_array(tcp_stats.rtt_samples, 10)
     if #rtt_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.3 TCP Round-Trip Time Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.3 TCP Round-Trip Time Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(rtt_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
