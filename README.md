@@ -20,14 +20,16 @@ A Wireshark plugin for generating network analysis reports with visualizations a
 
 ## ✨ Features
 
-- 📊 **Multiple Report Types** - Summary, Detailed Analysis with 11 comprehensive sections
-- 📈 **Rich Visualizations** - Bar charts, pie charts, circular communication matrix
-- 📄 **Multi-page PDF Export** - A4 and Legal paper sizes with intelligent page breaks
+- 📊 **Multiple Report Types** - Summary, Detailed Analysis with 12 comprehensive sections
+- 📈 **Rich Visualizations** - Bar charts, pie charts, circular communication matrix, protocol hierarchy trees
+- 🌳 **Protocol Hierarchy** - Deep protocol stack visualization (up to 8 levels) showing TCP/UDP branches, SMB, HTTP content types, and more
+- 📄 **Multi-page PDF Export** - A4 and Legal paper sizes with intelligent page breaks and truncation indicators
 - 🎯 **Filter Support** - Works seamlessly with Wireshark display filters
 - 🔍 **Deep Protocol Analysis** - DNS, TLS/SSL, HTTP, TCP, UDP, MAC layer statistics
 - 🚀 **Wireshark Integrated** - Pure Lua implementation running directly from Wireshark
 - 💾 **Auto-save Reports** - Automatically saves to ~/Documents/PacketReporter Reports/
 - ⚡ **Fast Performance** - Efficient packet processing with Wireshark Listener API
+- 📐 **Smart Table Layout** - Optimized column widths for better readability (narrow numbers, wide text fields)
 
 ## 📸 Screenshots
 
@@ -118,19 +120,20 @@ The cover page is automatically generated when you export a detailed report. If 
 Quick overview with essential statistics and key charts (1-2 pages).
 
 ### Detailed Report  
-Comprehensive analysis with 11 major sections (3-8 pages):
+Comprehensive analysis with 12 major sections (3-8 pages):
 
 1. **PCAP File Summary** - File info, timestamps, capture statistics
 2. **Top 10 IP Addresses** - Most active endpoints visualization
 3. **Protocol Distribution** - Traffic composition analysis  
 4. **IP Communication Matrix** - Circular visualization of host communications
 5. **Port Analysis** - TCP/UDP port statistics with charts
-6. **DNS Analysis** - Resource record types, authoritative responses, domain tables
-7. **TLS/SSL Analysis** - Protocol versions, SNI names, certificate analysis
-8. **HTTP Analysis** - User agents, hosts, status code distribution
-9. **MAC Layer Analysis** - Frame sizes, traffic types, vendor identification
-10. **IP Layer Analysis** - TTL distribution, fragmentation statistics
-11. **TCP Analysis** - Window sizes, segment distribution, RTT samples
+6. **Protocol Hierarchy** - Complete protocol stack visualization showing L2-L7 protocols and application-layer content (SMB, HTTP content types, etc.)
+7. **DNS Analysis** - Resource record types, authoritative responses, domain tables
+8. **TLS/SSL Analysis** - Protocol versions, SNI names, certificate analysis
+9. **HTTP Analysis** - User agents, hosts, status code distribution
+10. **MAC Layer Analysis** - Frame sizes, traffic types, vendor identification
+11. **IP Layer Analysis** - TTL distribution, fragmentation statistics
+12. **TCP Analysis** - Window sizes, segment distribution, RTT samples
 
 ## 📚 Documentation
 
