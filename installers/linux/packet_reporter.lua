@@ -16,6 +16,16 @@ Tested with Wireshark 4.x
 if not gui_enabled() then return end
 
 ------------------------------------------------------------
+-- Plugin Information
+------------------------------------------------------------
+set_plugin_info({
+  version = "0.2.2",
+  description = "PacketReporter - Comprehensive Network Analysis with PDF Export",
+  author = "PacketReporter Project",
+  repository = "https://github.com/netwho/PacketReporter"
+})
+
+------------------------------------------------------------
 -- Paper Size Configurations
 ------------------------------------------------------------
 local PAPER_SIZES = {
