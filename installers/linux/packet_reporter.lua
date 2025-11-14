@@ -2812,46 +2812,8 @@ register_menu("PacketReporter/1. Summary Report", generate_summary_report, MENU_
 register_menu("PacketReporter/2. Detailed Report (A4)", generate_detailed_report_a4, MENU_TOOLS_UNSORTED)
 register_menu("PacketReporter/3. Detailed Report (Legal)", generate_detailed_report_legal, MENU_TOOLS_UNSORTED)
 
--- Check if Communication Matrix plugin is available
--- Look for the standalone menu registration
-local function check_comm_matrix_installed()
-  -- Check if the standalone plugin file exists in common plugin directories
-  local plugin_name = "comm_matrix_table_view.lua"
-  local home = get_home_dir()
-  local check_paths = {
-    home .. "/.local/lib/wireshark/plugins/" .. plugin_name,
-    home .. "/.wireshark/plugins/" .. plugin_name,
-    "/usr/lib/wireshark/plugins/" .. plugin_name,
-    "/usr/local/lib/wireshark/plugins/" .. plugin_name
-  }
-  
-  for _, path in ipairs(check_paths) do
-    local f = io.open(path, "r")
-    if f then
-      f:close()
-      return true
-    end
-  end
-  return false
-end
-
--- Only register Communication Matrix menu if plugin is installed
-if check_comm_matrix_installed() then
-  local function open_comm_matrix()
-    local tw = TextWindow.new("Communication Matrix Info")
-    tw:append("Communication Matrix Visualization\n")
-    tw:append(string.rep("=", 50) .. "\n\n")
-    tw:append("The Communication Matrix Report is available via:\n\n")
-    tw:append("  Tools -> Communication Matrix Report\n\n")
-    tw:append("This provides:\n")
-    tw:append("  - IP Address circle visualization\n")
-    tw:append("  - MAC Address circle visualization\n")
-    tw:append("  - Top Conversations table\n")
-    tw:append("  - Traffic analysis with color-coded flows\n")
-  end
-  
-  register_menu("PacketReporter/4. Communication Matrix", open_comm_matrix, MENU_TOOLS_UNSORTED)
-end
+-- Communication Matrix plugin now registers itself as menu item #4 when PacketReporter is detected
+-- No need for PacketReporter to create a menu entry
 
 ------------------------------------------------------------
 -- Run Startup Dependency Check
