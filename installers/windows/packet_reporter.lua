@@ -16,16 +16,6 @@ Tested with Wireshark 4.x
 if not gui_enabled() then return end
 
 ------------------------------------------------------------
--- Plugin Information
-------------------------------------------------------------
-set_plugin_info({
-  version = "0.2.2",
-  description = "PacketReporter - Comprehensive Network Analysis with PDF Export",
-  author = "PacketReporter Project",
-  repository = "https://github.com/netwho/PacketReporter"
-})
-
-------------------------------------------------------------
 -- Paper Size Configurations
 ------------------------------------------------------------
 local PAPER_SIZES = {
@@ -187,9 +177,62 @@ end
 
 local IS_WINDOWS = is_windows()
 
+-- Cache for detected converters (avoid re-detection)
+local CACHED_CONVERTERS = nil
+
+-- VBScript wrapper for completely silent Windows execution (no window flashes)
+local function run_vbs_silent(cmd)
+  -- Create temporary batch file with the command
+  local bat_path = os.tmpname() .. ".bat"
+  local f = io.open(bat_path, "w")
+  if not f then return false end
+  f:write("@echo off\n")
+  f:write(cmd .. "\n")
+  f:close()
+  
+  -- Create VBScript to run batch file silently
+  local vbs_path = os.tmpname() .. ".vbs"
+  local vbs_content = string.format([[
+Set objShell = CreateObject("WScript.Shell")
+returnCode = objShell.Run("%s", 0, True)
+WScript.Quit returnCode
+]], bat_path:gsub("\\", "\\\\"))  -- Escape backslashes for VBScript
+  
+  f = io.open(vbs_path, "w")
+  if f then
+    f:write(vbs_content)
+    f:close()
+    
+    -- Execute VBScript (completely silent, no window, waits for completion)
+    -- Redirect output to suppress console
+    local rc = os.execute('cscript.exe //Nologo "' .. vbs_path .. '" >NUL 2>&1')
+    
+    -- Clean up both temp files
+    os.remove(vbs_path)
+    os.remove(bat_path)
+    
+    return rc == true or rc == 0
+  end
+  
+  os.remove(bat_path)  -- Clean up batch file if VBScript creation failed
+  return false
+end
+
+-- Silent command execution for Windows
+local function run_silent(cmd)
+  if IS_WINDOWS then
+    -- Use VBScript wrapper for completely silent execution (no flashes)
+    return run_vbs_silent(cmd)
+  else
+    local rc = os.execute(cmd)
+    return rc == true or rc == 0
+  end
+end
+
+-- Original run_sh for compatibility
 local function run_sh(cmd)
   if IS_WINDOWS then
-    -- On Windows, redirect to NUL to suppress console windows
+    -- Redirect output to suppress window
     local rc = os.execute(cmd .. " >NUL 2>NUL")
     return rc == true or rc == 0
   else
@@ -198,28 +241,33 @@ local function run_sh(cmd)
   end
 end
 
+-- Silent popen for Windows (returns handle or nil)
+local function popen_silent(cmd, mode)
+  if IS_WINDOWS then
+    -- Use PowerShell wrapper to hide window
+    local ps_cmd = string.format('powershell.exe -WindowStyle Hidden -NonInteractive -Command "%s"', cmd:gsub('"', '`"'))
+    return io.popen(ps_cmd, mode)
+  else
+    return io.popen(cmd, mode)
+  end
+end
+
 local function find_cmd(candidates)
   for _,c in ipairs(candidates) do
     if c:find("/") or c:find("\\") then
-      -- Full path candidate
-      if IS_WINDOWS then
-        local f = io.open(c, "r")
-        if f then
-          f:close()
-          return c
-        end
-      else
-        if run_sh("sh -c '[ -x "..c.." ]'") then
-          return c
-        end
+      -- Full path candidate - use file existence check (no console window)
+      local f = io.open(c, "r")
+      if f then
+        f:close()
+        return c
       end
     else
       -- Command name in PATH
       if IS_WINDOWS then
-        -- On Windows, try to run where.exe to find the command
-        -- Note: io.popen on Windows will briefly show a console window - this is a Lua limitation
-        -- We minimize the visibility by using 2>NUL
-        local handle = io.popen("where " .. c .. " 2>NUL", "r")
+        -- On Windows, try to run where.exe silently
+        -- Note: This will still briefly show a console window (Lua limitation)
+        -- But using hidden PowerShell reduces visibility
+        local handle = popen_silent("where " .. c .. " 2>NUL", "r")
         if handle then
           local result = handle:read("*a")
           handle:close()
@@ -365,6 +413,11 @@ local function generate_cover_page(paper, config, toc_items)
 end
 
 local function detect_converters()
+  -- Return cached results if available (avoid repeated detection)
+  if CACHED_CONVERTERS then
+    return CACHED_CONVERTERS
+  end
+  
   local rsvg_candidates = {
     "rsvg-convert",
     "/opt/homebrew/bin/rsvg-convert", "/usr/local/bin/rsvg-convert", "/usr/bin/rsvg-convert"
@@ -398,21 +451,28 @@ local function detect_converters()
   local pdfunite = find_cmd(pdfunite_candidates)
   local pdftk = find_cmd(pdftk_candidates)
 
-  return {
+  -- Cache results for future calls
+  CACHED_CONVERTERS = {
     rsvg = rsvg,
     inkscape = inks,
     magick = magick,
     pdfunite = pdfunite,
     pdftk = pdftk
   }
+  
+  return CACHED_CONVERTERS
 end
 
 ------------------------------------------------------------
 -- Startup Dependency Check
 ------------------------------------------------------------
 local function check_dependencies_on_startup()
-  -- Note: On Windows, the dependency detection will briefly show console windows
-  -- This is a limitation of Lua's io.popen() on Windows and happens only once at startup
+  -- Skip startup check on Windows to avoid console window flashes
+  -- Dependencies will be checked on first PDF export attempt instead
+  if IS_WINDOWS then
+    return
+  end
+  
   local tools = detect_converters()
   local missing = {}
   local warnings = {}
@@ -420,23 +480,14 @@ local function check_dependencies_on_startup()
   -- Check for SVG to PDF converter (at least one required)
   if not tools.rsvg and not tools.inkscape and not tools.magick then
     table.insert(missing, "SVG converter: rsvg-convert, inkscape, or imagemagick")
-    if IS_WINDOWS then
-      table.insert(warnings, "Install rsvg-convert (recommended): choco install rsvg-convert")
-    else
-      table.insert(warnings, "Install rsvg-convert (recommended): brew install librsvg")
-    end
+    table.insert(warnings, "Install rsvg-convert (recommended): brew install librsvg")
   end
   
   -- Check for PDF combiner (required for multi-page reports)
   if not tools.pdfunite and not tools.pdftk then
     table.insert(missing, "PDF combiner: pdfunite or pdftk")
-    if IS_WINDOWS then
-      table.insert(warnings, "Install pdftk (recommended): choco install pdftk")
-      table.insert(warnings, "Or install poppler-utils for pdfunite")
-    else
-      table.insert(warnings, "Install pdfunite (recommended): brew install poppler")
-      table.insert(warnings, "Or install pdftk: brew install pdftk-java")
-    end
+    table.insert(warnings, "Install pdfunite (recommended): brew install poppler")
+    table.insert(warnings, "Or install pdftk: brew install pdftk-java")
   end
   
   -- Display warning if dependencies are missing
@@ -751,8 +802,8 @@ local function get_reports_directory()
   
   -- Try to create the reports directory (mkdir will succeed if Documents exists)
   if IS_WINDOWS then
-    -- On Windows, use 'if not exist' to check and create (silently)
-    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" >NUL 2>NUL')
+    -- On Windows, use silent PowerShell to avoid console window
+    run_silent('if (!(Test-Path "' .. reports_dir:gsub("\\", "/") .. '")) { New-Item -ItemType Directory -Path "' .. reports_dir:gsub("\\", "/") .. '" -Force | Out-Null }')
   else
     -- On Unix, use mkdir -p
     os.execute('mkdir -p "' .. reports_dir .. '" 2>/dev/null')
@@ -773,10 +824,10 @@ end
 
 local function open_pdf_with_default_app(pdf_path)
   if IS_WINDOWS then
-    -- On Windows, use 'start' command with /B to avoid showing console window
-    -- Use cmd /c to execute start without leaving console open
-    local cmd = 'cmd /c start "" "' .. pdf_path .. '"'
-    local rc = os.execute(cmd)
+    -- On Windows, use PowerShell Start-Process with literal path
+    local ps_path = pdf_path:gsub("\\", "\\\\")
+    local ps_cmd = string.format('powershell.exe -WindowStyle Hidden -Command "Start-Process -FilePath \'%s\'"', ps_path)
+    local rc = os.execute(ps_cmd)
     return rc == true or rc == 0
   else
     -- On macOS/Linux, use 'open' or 'xdg-open'
@@ -799,14 +850,8 @@ local function export_single_page_pdf(svg_path, tw, tools, paper_size)
   tw:append("Exporting PDF...\n")
   
   if tools.rsvg then
-    local cmd
-    if IS_WINDOWS then
-      -- On Windows, wrap command to hide console window
-      cmd = string.format('cmd /c "%s -f pdf -o \"%s\" \"%s\" 2>&1"', tools.rsvg, pdf_path, svg_path)
-    else
-      cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, pdf_path, svg_path)
-    end
-    local handle = io.popen(cmd)
+    local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, pdf_path, svg_path)
+    local handle = IS_WINDOWS and popen_silent(cmd, "r") or io.popen(cmd)
     local result = handle:read("*a")
     local success = handle:close()
     
@@ -875,13 +920,12 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
     {title = "3. Protocol Distribution", page = 3},
     {title = "4. IP Communication Matrix", page = 3},
     {title = "5. Port Analysis", page = 4},
-    {title = "6. Protocol Hierarchy", page = 5},
-    {title = "7. DNS Analysis", page = 6},
-    {title = "8. TLS/SSL Analysis", page = 8},
-    {title = "9. HTTP Analysis", page = 9},
-    {title = "10. MAC Layer Analysis", page = 10},
-    {title = "11. IP Layer Analysis", page = 11},
-    {title = "12. TCP Analysis", page = 12}
+    {title = "6. DNS Analysis", page = 5},
+    {title = "7. TLS/SSL Analysis", page = 7},
+    {title = "8. HTTP Analysis", page = 8},
+    {title = "9. MAC Layer Analysis", page = 9},
+    {title = "10. IP Layer Analysis", page = 10},
+    {title = "11. TCP Analysis", page = 11}
   }
   
   local cover_page_svg = generate_cover_page(paper, config, toc_items)
@@ -943,37 +987,83 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   if tools.rsvg then
     tw:append("Converting pages to PDF (this may take a moment)...\n")
     local total_pages = #page_svgs
-    for i, svg_path in ipairs(page_svgs) do
-      local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
-      local cmd
-      if IS_WINDOWS then
-        -- On Windows, wrap command to hide console window
-        cmd = string.format('cmd /c "%s -f pdf -o \"%s\" \"%s\" 2>&1"', tools.rsvg, page_pdf_path, svg_path)
-      else
-        cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
-      end
-      local handle = io.popen(cmd)
-      local result = handle:read("*a")
-      local success = handle:close()
+    
+    -- On Windows, batch all conversions into single VBScript call
+    if IS_WINDOWS then
+      local page_pdf_paths = {}
       
-      if success and result == "" then
-        -- Check if PDF actually exists
+      -- Build batch file with ALL conversion commands
+      local bat_path = os.tmpname() .. ".bat"
+      local f = io.open(bat_path, "w")
+      if f then
+        f:write("@echo off\n")
+        
+        -- Add all conversion commands to batch file
+        for i, svg_path in ipairs(page_svgs) do
+          local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
+          page_pdf_paths[i] = page_pdf_path
+          f:write(string.format('"%s" -f pdf -o "%s" "%s"\n', tools.rsvg, page_pdf_path, svg_path))
+        end
+        f:close()
+        
+        -- Create VBScript to run batch file silently
+        local vbs_path = os.tmpname() .. ".vbs"
+        local vbs_content = string.format([[
+Set objShell = CreateObject("WScript.Shell")
+returnCode = objShell.Run("%s", 0, True)
+WScript.Quit returnCode
+]], bat_path:gsub("\\", "\\\\"))
+        
+        f = io.open(vbs_path, "w")
+        if f then
+          f:write(vbs_content)
+          f:close()
+          
+          -- Execute VBScript once for all conversions (single console window suppressed)
+          os.execute('cscript.exe //Nologo "' .. vbs_path .. '" >NUL 2>&1')
+          
+          -- Clean up
+          os.remove(vbs_path)
+          os.remove(bat_path)
+        else
+          os.remove(bat_path)
+        end
+      end
+      
+      -- Check which PDFs were created
+      for i, page_pdf_path in ipairs(page_pdf_paths) do
         local pdf_test = io.open(page_pdf_path, "r")
         if pdf_test then
           pdf_test:close()
           table.insert(page_pdfs, page_pdf_path)
         else
-          tw:append(string.format("  ✗ Failed to convert page %d (PDF not created)\n", i))
-        end
-      else
-        tw:append(string.format("  ✗ Failed to convert page %d\n", i))
-        if result and result ~= "" then
-          tw:append("    Error: " .. result:sub(1, 200) .. "\n")
+          tw:append(string.format("  ✗ Failed to convert page %d\n", i))
         end
       end
-      
-      -- Don't clean up SVG yet for debugging
-      -- os.remove(svg_path)
+    else
+      -- Unix: convert pages individually
+      for i, svg_path in ipairs(page_svgs) do
+        local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
+        local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
+        local handle = io.popen(cmd)
+        local result = handle:read("*a")
+        local success = handle:close()
+        
+        -- Check if PDF was actually created (more reliable than checking return code)
+        local pdf_test = io.open(page_pdf_path, "r")
+        if pdf_test then
+          pdf_test:close()
+          table.insert(page_pdfs, page_pdf_path)
+        else
+          tw:append(string.format("  ✗ Failed to convert page %d\n", i))
+          if result and result ~= "" then
+            tw:append("    Error: " .. result:sub(1, 200) .. "\n")
+          end
+          if not success then
+            tw:append("    Command failed to execute\n")
+          end
+        end
+      end
     end
     tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
@@ -985,7 +1075,12 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       -- Build quoted list of PDF paths
       local pdf_list_parts = {}
       for _, pdf in ipairs(page_pdfs) do
-        table.insert(pdf_list_parts, '"' .. pdf .. '"')
+        if IS_WINDOWS then
+          -- Convert to forward slashes for better Windows compatibility
+          table.insert(pdf_list_parts, '"' .. pdf:gsub("\\", "/") .. '"')
+        else
+          table.insert(pdf_list_parts, '"' .. pdf .. '"')
+        end
       end
       local pdf_list = table.concat(pdf_list_parts, ' ')
       
@@ -994,26 +1089,41 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       
       if tools.pdfunite then
         tw:append("  Using pdfunite: " .. tools.pdfunite .. "\n")
-        local combine_cmd
+        
         if IS_WINDOWS then
-          combine_cmd = string.format('cmd /c "%s %s \"%s\" 2>&1"', tools.pdfunite, pdf_list, pdf_path)
+          -- Use VBScript for silent execution on Windows
+          local combine_cmd = string.format('%s %s "%s"', tools.pdfunite, pdf_list, pdf_path)
+          success = run_vbs_silent(combine_cmd)
+          result = ""  -- VBScript doesn't capture output
         else
-          combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+          local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+          local handle = io.popen(combine_cmd)
+          result = handle:read("*a")
+          success = handle:close()
         end
-        local handle = io.popen(combine_cmd)
-        result = handle:read("*a")
-        success = handle:close()
       elseif tools.pdftk then
         tw:append("  Using pdftk: " .. tools.pdftk .. "\n")
-        local combine_cmd
+        
         if IS_WINDOWS then
-          combine_cmd = string.format('cmd /c "%s %s cat output \"%s\" 2>&1"', tools.pdftk, pdf_list, pdf_path)
+          -- Use VBScript for silent execution on Windows
+          local combine_cmd = string.format('%s %s cat output "%s"', tools.pdftk, pdf_list, pdf_path)
+          success = run_vbs_silent(combine_cmd)
+          result = ""
         else
-          combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+          local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+          local handle = io.popen(combine_cmd)
+          result = handle:read("*a")
+          success = handle:close()
         end
-        local handle = io.popen(combine_cmd)
-        result = handle:read("*a")
-        success = handle:close()
+      end
+      
+      -- Check if output PDF was actually created (more reliable than exit code)
+      local pdf_created = false
+      local test_file = io.open(pdf_path, "r")
+      if test_file then
+        test_file:close()
+        pdf_created = true
+        success = true  -- Override success if file exists
       end
       
       -- Clean up individual page PDFs
@@ -1021,7 +1131,7 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         os.remove(pdf)
       end
       
-      if success then
+      if success and pdf_created then
         local total_pages_display = cover_svg_path and (num_pages + 1) or num_pages
         tw:append("✓ Created multi-page PDF: " .. pdf_path .. "\n")
         tw:append(string.format("  Total pages: %d\n", total_pages_display))
@@ -1455,210 +1565,6 @@ local function collect_tcp_stats()
   return stats
 end
 
--- Collect Protocol Hierarchy statistics
-local function collect_protocol_hierarchy()
-  local hierarchy = {}
-  local total_packets = 0
-  
-  local tap = Listener.new("frame", nil)
-  
-  function tap.packet(pinfo, tvb)
-    total_packets = total_packets + 1
-    
-    -- Get full protocol stack (this includes ALL protocols: eth:ethertype:ip:tcp:http:png, etc.)
-    local protocols = f2s(f_frame_protocols) or ""
-    if protocols ~= "" then
-      -- Store the exact protocol string as seen by Wireshark
-      hierarchy[protocols] = (hierarchy[protocols] or 0) + 1
-    end
-  end
-  
-  retap_packets()
-  tap:remove()
-  
-  -- Build tree structure from protocol strings
-  -- The key insight: protocols are separated by colons in the order they appear in the stack
-  -- Example: "eth:ethertype:ip:tcp:http:image-jfif" means eth->ip->tcp->http->jfif
-  local tree = {}
-  local proto_totals = {}
-  
-  for proto_string, count in pairs(hierarchy) do
-    local parts = {}
-    -- Split on colon to get individual protocols
-    for part in proto_string:gmatch("([^:]+)") do
-      table.insert(parts, part)
-    end
-    
-    -- Build hierarchical tree
-    -- Each protocol is a child of the previous one in the chain
-    local current = tree
-    for i, part in ipairs(parts) do
-      if not current[part] then
-        current[part] = {count = 0, children = {}, depth = i - 1}
-      end
-      current[part].count = current[part].count + count
-      proto_totals[part] = (proto_totals[part] or 0) + count
-      current = current[part].children
-    end
-  end
-  
-  return {
-    tree = tree,
-    totals = proto_totals,
-    total_packets = total_packets
-  }
-end
-
--- Generate Protocol Hierarchy Tree visualization
-local function generate_protocol_tree(tree, totals, total_packets, x, y, width, max_height)
-  local out = {}
-  local function add(s) table.insert(out, s) end
-  
-  if not tree or not totals then return "", 0 end
-  
-  -- Sort protocols by packet count
-  local sorted_protos = {}
-  for proto, count in pairs(totals) do
-    table.insert(sorted_protos, {name = proto, count = count})
-  end
-  table.sort(sorted_protos, function(a, b) return a.count > b.count end)
-  
-  -- Limit display to fit on page
-  -- We'll limit by total items rendered, not by unique protocols
-  -- This allows us to show the hierarchy properly
-  local max_items = 100  -- Increased significantly to capture deep protocols
-  local display_protos = {}
-  for i = 1, math.min(max_items, #sorted_protos) do
-    display_protos[sorted_protos[i].name] = true
-  end
-  
-  -- Draw tree with indentation
-  local line_height = 20
-  local indent_width = 25
-  local current_y = y
-  
-  -- Track total items rendered to enforce page limit
-  local items_rendered = 0
-  local max_total_items = 45  -- Increased to show more protocols like SMB, HTTP content, etc.
-  
-  -- Track if we truncated the display
-  local truncated = false
-  
-  -- Recursive function to draw tree nodes
-  local function draw_node(node, name, indent, parent_count)
-    -- Stop if we exceed height or item limits
-    if current_y - y > max_height or items_rendered >= max_total_items then
-      truncated = true
-      return false
-    end
-    
-    -- For deeper levels (indent > 1), only skip if very insignificant (< 0.1% of parent)
-    if indent > 1 and parent_count > 0 then
-      local percentage = (node.count / parent_count) * 100
-      if percentage < 0.1 then
-        return true  -- Skip very insignificant protocols
-      end
-    end
-    
-    items_rendered = items_rendered + 1
-    
-    local node_x = x + indent * indent_width
-    local percentage = (node.count / total_packets) * 100
-    
-    -- Draw connector line from parent
-    if indent > 0 then
-      add(string.format('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#999" stroke-width="1" stroke-dasharray="2,2"/>\n',
-        node_x - indent_width + 10, current_y - line_height/2, node_x - 5, current_y + 4))
-    end
-    
-    -- Draw protocol box with color gradient by depth
-    local box_width = math.min(200, width - (indent * indent_width) - 20)
-    local color = "#e8f4f8"
-    if indent == 0 then
-      color = "#2C7BB6"  -- Dark blue for L2 (eth, wlan)
-    elseif indent == 1 then
-      color = "#00A6CA"  -- Cyan for ethertype/arp
-    elseif indent == 2 then
-      color = "#90EE90"  -- Light green for L3 (ip, ipv6)
-    elseif indent == 3 then
-      color = "#FFD700"  -- Gold for L4 (tcp, udp, icmp)
-    elseif indent == 4 then
-      color = "#FF8C42"  -- Orange for L5-L7 (http, nbss, dns, tls)
-    elseif indent == 5 then
-      color = "#FF6B6B"  -- Red for application (smb, smb2, http content-type)
-    elseif indent == 6 then
-      color = "#DA70D6"  -- Orchid for content (png, jpeg, javascript, json)
-    else
-      color = "#DDA0DD"  -- Plum for deep content
-    end
-    
-    -- Box
-    add(string.format('<rect x="%d" y="%d" width="%d" height="%d" fill="%s" fill-opacity="%s" stroke="#666" stroke-width="0.5" rx="3"/>\n',
-      node_x, current_y, box_width, 16, color, indent == 0 and "1" or "0.3"))
-    
-    -- Protocol name
-    local display_name = name
-    if #display_name > 22 then
-      display_name = display_name:sub(1, 20) .. ".."
-    end
-    
-    add(string.format('<text x="%d" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="%s" fill="%s">%s</text>\n',
-      node_x + 5, current_y + 11, indent == 0 and "700" or "400", indent == 0 and "white" or "#333", xml_escape(display_name)))
-    
-    -- Packet count and percentage
-    add(string.format('<text x="%d" y="%d" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="9" fill="%s">%d (%.1f%%)</text>\n',
-      node_x + box_width - 5, current_y + 11, indent == 0 and "white" or "#666", node.count, percentage))
-    
-    current_y = current_y + line_height
-    
-    -- Draw children (show up to 7 levels deep to capture: eth->ip->tcp->nbss->smb->smb2->...
-    -- or eth->ip->tcp->http->content->image-jfif->...)
-    if indent < 7 and node.children then
-      local children = {}
-      for child_name, child_node in pairs(node.children) do
-        -- Include all children, don't filter by display_protos here
-        -- The filtering happens in draw_node based on significance
-        table.insert(children, {name = child_name, node = child_node})
-      end
-      table.sort(children, function(a, b) return a.node.count > b.node.count end)
-      
-      for _, child in ipairs(children) do
-        if not draw_node(child.node, child.name, indent + 1, node.count) then
-          return false
-        end
-      end
-    end
-    
-    return true
-  end
-  
-  -- Draw top-level protocols
-  local top_protos = {}
-  for proto, node in pairs(tree) do
-    if display_protos[proto] then
-      table.insert(top_protos, {name = proto, node = node})
-    end
-  end
-  table.sort(top_protos, function(a, b) return a.node.count > b.node.count end)
-  
-  for _, proto in ipairs(top_protos) do
-    if not draw_node(proto.node, proto.name, 0, total_packets) then
-      break
-    end
-  end
-  
-  -- Add truncation notice if needed
-  if truncated then
-    current_y = current_y + 20  -- Empty line before truncation notice
-    add(string.format('<text x="%d" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic" fill="#999">... list truncated to fit page (showing %d items)</text>\n',
-      x, current_y + 5, items_rendered))
-    current_y = current_y + 20
-  end
-  
-  local total_height = current_y - y + 10
-  return table.concat(out), total_height
-end
-
 -- Collect TLS/SSL statistics
 local function collect_tls_stats()
   local stats = {
@@ -1910,7 +1816,6 @@ local function generate_detailed_report_internal()
   local ip_stats = collect_ip_stats()
   local tcp_stats = collect_tcp_stats()
   local tls_stats = collect_tls_stats()
-  local proto_hierarchy = collect_protocol_hierarchy()
   
   if basic_stats.total_packets == 0 then
     tw:append("No packets found in current capture.\n")
@@ -2280,27 +2185,7 @@ local function generate_detailed_report_internal()
   end
   y_pos = y_pos + 240
   
-  -- Section 6: Protocol Hierarchy - New section
-  force_page_break_if_needed_legal(600)  -- Legal: ensure section fits
-  check_page_boundary(600)  -- Need enough space for tree
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">6. Protocol Hierarchy</text>\n', y_pos))
-  y_pos = y_pos + 30
-  
-  if proto_hierarchy and proto_hierarchy.tree then
-    local tree_svg, tree_height = generate_protocol_tree(
-      proto_hierarchy.tree,
-      proto_hierarchy.totals,
-      proto_hierarchy.total_packets,
-      60, y_pos, paper.width - 120, 700  -- Max height ~700px to fit on A4
-    )
-    add(tree_svg)
-    y_pos = y_pos + tree_height + 30
-  else
-    add(string.format('<text x="70" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#666">No protocol hierarchy data available</text>\n', y_pos))
-    y_pos = y_pos + 30
-  end
-  
-  -- Section 7: DNS Analysis (Table View) - Force to new page (renumbered from 6)
+  -- Section 6: DNS Analysis (Table View) - Force to new page
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2311,11 +2196,11 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">7. DNS Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">6. DNS Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   if #top_10_dns_queries > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 Top 10 DNS Queries</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.1 Top 10 DNS Queries</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare DNS table data and pad to 10 rows
@@ -2355,10 +2240,10 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 30
   end
   
-  -- 7.2 DNS Record Types (renumbered from 6.2)
+  -- 6.2 DNS Record Types
   local top_record_types = dict_to_sorted_array(dns_stats.record_types, 10)
   if #top_record_types > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.2 DNS Record Types Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.2 DNS Record Types Distribution</text>\n', y_pos))
     y_pos = y_pos + 25
     
     -- Pie chart for record types
@@ -2366,9 +2251,9 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 240
   end
   
-  -- 7.3 Authoritative vs Non-Authoritative Responses (renumbered from 6.3)
+  -- 6.3 Authoritative vs Non-Authoritative Responses
   if dns_stats.total_responses > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.3 DNS Response Analysis</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">6.3 DNS Response Analysis</text>\n', y_pos))
     y_pos = y_pos + 25
     
     local response_data = {
@@ -2384,7 +2269,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + 40
   end
   
-  -- Section 8: TLS/SSL Analysis - Force to new page (renumbered from 7)
+  -- Section 7: TLS/SSL Analysis - Force to new page
   local top_tls_versions = dict_to_sorted_array(tls_stats.versions, 10)
   local top_sni_names = dict_to_sorted_array(tls_stats.sni_names, 10)
   local top_cert_names = dict_to_sorted_array(tls_stats.cert_common_names, 10)
@@ -2398,12 +2283,12 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">8. TLS/SSL Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">7. TLS/SSL Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- TLS Version distribution (horizontal bar chart)
     if #top_tls_versions > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.1 TLS/SSL Version Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 TLS/SSL Version Distribution</text>\n', y_pos))
       y_pos = y_pos + 25
       
       local bar_height = 30
@@ -2442,7 +2327,7 @@ local function generate_detailed_report_internal()
     
     -- Top SNI names
     if #top_sni_names > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.2 Top 10 TLS Server Names (SNI)</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.2 Top 10 TLS Server Names (SNI)</text>\n', y_pos))
       y_pos = y_pos + 20
       
       local sni_table_data = {}
@@ -2464,7 +2349,7 @@ local function generate_detailed_report_internal()
     
     -- Top certificate names (if available)
     if #top_cert_names > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.3 Top 10 Certificate Common Names</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.3 Top 10 Certificate Common Names</text>\n', y_pos))
       y_pos = y_pos + 20
       
       local cert_table_data = {}
@@ -2492,7 +2377,7 @@ local function generate_detailed_report_internal()
     end
   end
   
-  -- Section 9: HTTP Analysis - Force to new page
+  -- Section 8: HTTP Analysis - Force to new page
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2500,11 +2385,11 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">9. HTTP Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">8. HTTP Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   if #top_10_http_ua > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.1 Top 10 HTTP User-Agents</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.1 Top 10 HTTP User-Agents</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare User-Agent table data and pad to 10 rows
@@ -2529,7 +2414,7 @@ local function generate_detailed_report_internal()
   end
   
   if #top_10_http_hosts > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.2 Top 10 HTTP Hosts</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.2 Top 10 HTTP Hosts</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Prepare Hosts table data and pad to 10 rows
@@ -2551,7 +2436,7 @@ local function generate_detailed_report_internal()
   end
   
   if #top_5_http_codes > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.3 HTTP Status Codes</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">8.3 HTTP Status Codes</text>\n', y_pos))
     y_pos = y_pos + 20
     
     -- Generate horizontal bar chart for status codes
@@ -2589,7 +2474,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + (#top_5_http_codes * (bar_height + 8)) + 20
   end
   
-  -- Section 10: MAC Layer Analysis - Force to new page
+  -- Section 9: MAC Layer Analysis - Force to new page
   local bottom_margin = 60
   local page_usable_height = paper.height - bottom_margin
   local current_page_num = math.floor(y_pos / paper.height)
@@ -2597,13 +2482,13 @@ local function generate_detailed_report_internal()
   add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
   y_pos = y_pos + padding + 80
   
-  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">10. MAC Layer Analysis</text>\n', y_pos))
+  add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">9. MAC Layer Analysis</text>\n', y_pos))
   y_pos = y_pos + 30
   
   -- Traffic type (broadcast/multicast/unicast)
   local total_frames = mac_stats.broadcast + mac_stats.multicast + mac_stats.unicast
   if total_frames > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.1 Traffic Type Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.1 Traffic Type Distribution</text>\n', y_pos))
     y_pos = y_pos + 20
     
     local traffic_types = {
@@ -2618,7 +2503,7 @@ local function generate_detailed_report_internal()
   -- Frame sizes
   local frame_size_data = dict_to_sorted_array(mac_stats.frame_sizes, 10)
   if #frame_size_data > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 Frame Size Distribution</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.2 Frame Size Distribution</text>\n', y_pos))
     y_pos = y_pos + 30
     add(generate_bar_chart(frame_size_data, "", 50, y_pos, paper.width - 100, 200, false))
     y_pos = y_pos + 250
@@ -2627,7 +2512,7 @@ local function generate_detailed_report_internal()
   -- Top vendors
   local top_vendors = dict_to_sorted_array(mac_stats.vendors, 10)
   if #top_vendors > 0 then
-    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.3 Top 10 MAC Vendors</text>\n', y_pos))
+    add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">9.3 Top 10 MAC Vendors</text>\n', y_pos))
     y_pos = y_pos + 20
     
     local vendor_table_data = {}
@@ -2647,7 +2532,7 @@ local function generate_detailed_report_internal()
     y_pos = y_pos + vendor_height + 30
   end
   
-  -- Section 11: IP Layer Analysis - Force to new page
+  -- Section 10: IP Layer Analysis - Force to new page
   if ip_stats.total_packets > 0 then
     local bottom_margin = 60
     local page_usable_height = paper.height - bottom_margin
@@ -2656,13 +2541,13 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">11. IP Layer Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">10. IP Layer Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- TTL distribution
     local ttl_data = dict_to_sorted_array(ip_stats.ttl, 10)
     if #ttl_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.1 TTL Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.1 TTL Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(ttl_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2670,7 +2555,7 @@ local function generate_detailed_report_internal()
     
     -- Fragmentation stats
     if ip_stats.fragmented > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 IP Fragmentation</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 IP Fragmentation</text>\n', y_pos))
       y_pos = y_pos + 25
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#555">Fragmented Packets: <tspan fill="#333" font-weight="700">%d</tspan></text>\n', y_pos, ip_stats.fragmented))
       y_pos = y_pos + 18
@@ -2678,32 +2563,32 @@ local function generate_detailed_report_internal()
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#555">Fragmentation Rate: <tspan fill="#333" font-weight="700">%.2f%%</tspan></text>\n', y_pos, frag_pct))
       y_pos = y_pos + 30
     else
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 IP Fragmentation</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.2 IP Fragmentation</text>\n', y_pos))
       y_pos = y_pos + 25
       add(string.format('<text x="90" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#666">No IP fragmentation detected</text>\n', y_pos))
       y_pos = y_pos + 40
     end
     
-    -- 11.3 DSCP Distribution
+    -- 10.3 DSCP Distribution
     local dscp_data = dict_to_sorted_array(ip_stats.dscp, 10)
     if #dscp_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.3 DSCP (Differentiated Services) Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.3 DSCP (Differentiated Services) Distribution</text>\n', y_pos))
       y_pos = y_pos + 25
       add(generate_pie_chart(dscp_data, "", paper.width/2, y_pos + 100, 90, true))
       y_pos = y_pos + 240
     end
     
-    -- 11.4 IP Protocol Distribution
+    -- 10.4 IP Protocol Distribution
     local proto_data = dict_to_sorted_array(ip_stats.protocols, 10)
     if #proto_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.4 IP Protocol Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">10.4 IP Protocol Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(proto_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
     end
   end
   
-  -- Section 12: TCP Analysis - Force to new page
+  -- Section 11: TCP Analysis - Force to new page
   if tcp_stats.total_packets > 0 then
     local bottom_margin = 60
     local page_usable_height = paper.height - bottom_margin
@@ -2712,13 +2597,13 @@ local function generate_detailed_report_internal()
     add(string.format('<rect x="0" y="%d" width="1" height="%d" fill="none"/>\n', y_pos, padding))
     y_pos = y_pos + padding + 80
     
-    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">12. TCP Analysis</text>\n', y_pos))
+    add(string.format('<text x="50" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#2C7BB6">11. TCP Analysis</text>\n', y_pos))
     y_pos = y_pos + 30
     
     -- Window size distribution
     local window_data = dict_to_sorted_array(tcp_stats.window_sizes, 10)
     if #window_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.1 TCP Window Size Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.1 TCP Window Size Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(window_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2727,7 +2612,7 @@ local function generate_detailed_report_internal()
     -- Segment size distribution
     local segment_data = dict_to_sorted_array(tcp_stats.segment_sizes, 10)
     if #segment_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.2 TCP Segment Size Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.2 TCP Segment Size Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(segment_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2736,7 +2621,7 @@ local function generate_detailed_report_internal()
     -- RTT distribution
     local rtt_data = dict_to_sorted_array(tcp_stats.rtt_samples, 10)
     if #rtt_data > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">12.3 TCP Round-Trip Time Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">11.3 TCP Round-Trip Time Distribution</text>\n', y_pos))
       y_pos = y_pos + 30
       add(generate_bar_chart(rtt_data, "", 50, y_pos, paper.width - 100, 200, false))
       y_pos = y_pos + 250
@@ -2812,8 +2697,46 @@ register_menu("PacketReporter/1. Summary Report", generate_summary_report, MENU_
 register_menu("PacketReporter/2. Detailed Report (A4)", generate_detailed_report_a4, MENU_TOOLS_UNSORTED)
 register_menu("PacketReporter/3. Detailed Report (Legal)", generate_detailed_report_legal, MENU_TOOLS_UNSORTED)
 
--- Communication Matrix plugin now registers itself as menu item #4 when PacketReporter is detected
--- No need for PacketReporter to create a menu entry
+-- Check if Communication Matrix plugin is available
+-- Look for the standalone menu registration
+local function check_comm_matrix_installed()
+  -- Check if the standalone plugin file exists in common plugin directories
+  local plugin_name = "comm_matrix_table_view.lua"
+  local home = get_home_dir()
+  local check_paths = {
+    home .. "/.local/lib/wireshark/plugins/" .. plugin_name,
+    home .. "/.wireshark/plugins/" .. plugin_name,
+    "/usr/lib/wireshark/plugins/" .. plugin_name,
+    "/usr/local/lib/wireshark/plugins/" .. plugin_name
+  }
+  
+  for _, path in ipairs(check_paths) do
+    local f = io.open(path, "r")
+    if f then
+      f:close()
+      return true
+    end
+  end
+  return false
+end
+
+-- Only register Communication Matrix menu if plugin is installed
+if check_comm_matrix_installed() then
+  local function open_comm_matrix()
+    local tw = TextWindow.new("Communication Matrix Info")
+    tw:append("Communication Matrix Visualization\n")
+    tw:append(string.rep("=", 50) .. "\n\n")
+    tw:append("The Communication Matrix Report is available via:\n\n")
+    tw:append("  Tools -> Communication Matrix Report\n\n")
+    tw:append("This provides:\n")
+    tw:append("  - IP Address circle visualization\n")
+    tw:append("  - MAC Address circle visualization\n")
+    tw:append("  - Top Conversations table\n")
+    tw:append("  - Traffic analysis with color-coded flows\n")
+  end
+  
+  register_menu("PacketReporter/4. Communication Matrix", open_comm_matrix, MENU_TOOLS_UNSORTED)
+end
 
 ------------------------------------------------------------
 -- Run Startup Dependency Check

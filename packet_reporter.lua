@@ -177,31 +177,97 @@ end
 
 local IS_WINDOWS = is_windows()
 
+-- Cache for detected converters (avoid re-detection)
+local CACHED_CONVERTERS = nil
+
+-- VBScript wrapper for completely silent Windows execution (no window flashes)
+local function run_vbs_silent(cmd)
+  -- Create temporary batch file with the command
+  local bat_path = os.tmpname() .. ".bat"
+  local f = io.open(bat_path, "w")
+  if not f then return false end
+  f:write("@echo off\n")
+  f:write(cmd .. "\n")
+  f:close()
+  
+  -- Create VBScript to run batch file silently
+  local vbs_path = os.tmpname() .. ".vbs"
+  local vbs_content = string.format([[
+Set objShell = CreateObject("WScript.Shell")
+returnCode = objShell.Run("%s", 0, True)
+WScript.Quit returnCode
+]], bat_path:gsub("\\", "\\\\"))  -- Escape backslashes for VBScript
+  
+  f = io.open(vbs_path, "w")
+  if f then
+    f:write(vbs_content)
+    f:close()
+    
+    -- Execute VBScript (completely silent, no window, waits for completion)
+    -- Redirect output to suppress console
+    local rc = os.execute('cscript.exe //Nologo "' .. vbs_path .. '" >NUL 2>&1')
+    
+    -- Clean up both temp files
+    os.remove(vbs_path)
+    os.remove(bat_path)
+    
+    return rc == true or rc == 0
+  end
+  
+  os.remove(bat_path)  -- Clean up batch file if VBScript creation failed
+  return false
+end
+
+-- Silent command execution for Windows
+local function run_silent(cmd)
+  if IS_WINDOWS then
+    -- Use VBScript wrapper for completely silent execution (no flashes)
+    return run_vbs_silent(cmd)
+  else
+    local rc = os.execute(cmd)
+    return rc == true or rc == 0
+  end
+end
+
+-- Original run_sh for compatibility
 local function run_sh(cmd)
-  local rc = os.execute(cmd)
-  return rc == true or rc == 0
+  if IS_WINDOWS then
+    -- Redirect output to suppress window
+    local rc = os.execute(cmd .. " >NUL 2>NUL")
+    return rc == true or rc == 0
+  else
+    local rc = os.execute(cmd)
+    return rc == true or rc == 0
+  end
+end
+
+-- Silent popen for Windows (returns handle or nil)
+local function popen_silent(cmd, mode)
+  if IS_WINDOWS then
+    -- Use PowerShell wrapper to hide window
+    local ps_cmd = string.format('powershell.exe -WindowStyle Hidden -NonInteractive -Command "%s"', cmd:gsub('"', '`"'))
+    return io.popen(ps_cmd, mode)
+  else
+    return io.popen(cmd, mode)
+  end
 end
 
 local function find_cmd(candidates)
   for _,c in ipairs(candidates) do
     if c:find("/") or c:find("\\") then
-      -- Full path candidate
-      if IS_WINDOWS then
-        local f = io.open(c, "r")
-        if f then
-          f:close()
-          return c
-        end
-      else
-        if run_sh("sh -c '[ -x "..c.." ]'") then
-          return c
-        end
+      -- Full path candidate - use file existence check (no console window)
+      local f = io.open(c, "r")
+      if f then
+        f:close()
+        return c
       end
     else
       -- Command name in PATH
       if IS_WINDOWS then
-        -- On Windows, try to run where.exe to find the command
-        local handle = io.popen("where " .. c .. " 2>NUL", "r")
+        -- On Windows, try to run where.exe silently
+        -- Note: This will still briefly show a console window (Lua limitation)
+        -- But using hidden PowerShell reduces visibility
+        local handle = popen_silent("where " .. c .. " 2>NUL", "r")
         if handle then
           local result = handle:read("*a")
           handle:close()
@@ -347,6 +413,11 @@ local function generate_cover_page(paper, config, toc_items)
 end
 
 local function detect_converters()
+  -- Return cached results if available (avoid repeated detection)
+  if CACHED_CONVERTERS then
+    return CACHED_CONVERTERS
+  end
+  
   local rsvg_candidates = {
     "rsvg-convert",
     "/opt/homebrew/bin/rsvg-convert", "/usr/local/bin/rsvg-convert", "/usr/bin/rsvg-convert"
@@ -380,19 +451,28 @@ local function detect_converters()
   local pdfunite = find_cmd(pdfunite_candidates)
   local pdftk = find_cmd(pdftk_candidates)
 
-  return {
+  -- Cache results for future calls
+  CACHED_CONVERTERS = {
     rsvg = rsvg,
     inkscape = inks,
     magick = magick,
     pdfunite = pdfunite,
     pdftk = pdftk
   }
+  
+  return CACHED_CONVERTERS
 end
 
 ------------------------------------------------------------
 -- Startup Dependency Check
 ------------------------------------------------------------
 local function check_dependencies_on_startup()
+  -- Skip startup check on Windows to avoid console window flashes
+  -- Dependencies will be checked on first PDF export attempt instead
+  if IS_WINDOWS then
+    return
+  end
+  
   local tools = detect_converters()
   local missing = {}
   local warnings = {}
@@ -722,8 +802,8 @@ local function get_reports_directory()
   
   -- Try to create the reports directory (mkdir will succeed if Documents exists)
   if IS_WINDOWS then
-    -- On Windows, use 'if not exist' to check and create
-    os.execute('if not exist "' .. reports_dir .. '" mkdir "' .. reports_dir .. '" 2>NUL')
+    -- On Windows, use silent PowerShell to avoid console window
+    run_silent('if (!(Test-Path "' .. reports_dir:gsub("\\", "/") .. '")) { New-Item -ItemType Directory -Path "' .. reports_dir:gsub("\\", "/") .. '" -Force | Out-Null }')
   else
     -- On Unix, use mkdir -p
     os.execute('mkdir -p "' .. reports_dir .. '" 2>/dev/null')
@@ -744,9 +824,11 @@ end
 
 local function open_pdf_with_default_app(pdf_path)
   if IS_WINDOWS then
-    -- On Windows, use 'start' command
-    local cmd = 'start "" "' .. pdf_path .. '"'
-    return run_sh(cmd)
+    -- On Windows, use PowerShell Start-Process with literal path
+    local ps_path = pdf_path:gsub("\\", "\\\\")
+    local ps_cmd = string.format('powershell.exe -WindowStyle Hidden -Command "Start-Process -FilePath \'%s\'"', ps_path)
+    local rc = os.execute(ps_cmd)
+    return rc == true or rc == 0
   else
     -- On macOS/Linux, use 'open' or 'xdg-open'
     local cmd = 'open "' .. pdf_path .. '"'
@@ -769,7 +851,7 @@ local function export_single_page_pdf(svg_path, tw, tools, paper_size)
   
   if tools.rsvg then
     local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, pdf_path, svg_path)
-    local handle = io.popen(cmd)
+    local handle = IS_WINDOWS and popen_silent(cmd, "r") or io.popen(cmd)
     local result = handle:read("*a")
     local success = handle:close()
     
@@ -905,31 +987,83 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   if tools.rsvg then
     tw:append("Converting pages to PDF (this may take a moment)...\n")
     local total_pages = #page_svgs
-    for i, svg_path in ipairs(page_svgs) do
-      local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
-      local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
-      local handle = io.popen(cmd)
-      local result = handle:read("*a")
-      local success = handle:close()
+    
+    -- On Windows, batch all conversions into single VBScript call
+    if IS_WINDOWS then
+      local page_pdf_paths = {}
       
-      if success and result == "" then
-        -- Check if PDF actually exists
+      -- Build batch file with ALL conversion commands
+      local bat_path = os.tmpname() .. ".bat"
+      local f = io.open(bat_path, "w")
+      if f then
+        f:write("@echo off\n")
+        
+        -- Add all conversion commands to batch file
+        for i, svg_path in ipairs(page_svgs) do
+          local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
+          page_pdf_paths[i] = page_pdf_path
+          f:write(string.format('"%s" -f pdf -o "%s" "%s"\n', tools.rsvg, page_pdf_path, svg_path))
+        end
+        f:close()
+        
+        -- Create VBScript to run batch file silently
+        local vbs_path = os.tmpname() .. ".vbs"
+        local vbs_content = string.format([[
+Set objShell = CreateObject("WScript.Shell")
+returnCode = objShell.Run("%s", 0, True)
+WScript.Quit returnCode
+]], bat_path:gsub("\\", "\\\\"))
+        
+        f = io.open(vbs_path, "w")
+        if f then
+          f:write(vbs_content)
+          f:close()
+          
+          -- Execute VBScript once for all conversions (single console window suppressed)
+          os.execute('cscript.exe //Nologo "' .. vbs_path .. '" >NUL 2>&1')
+          
+          -- Clean up
+          os.remove(vbs_path)
+          os.remove(bat_path)
+        else
+          os.remove(bat_path)
+        end
+      end
+      
+      -- Check which PDFs were created
+      for i, page_pdf_path in ipairs(page_pdf_paths) do
         local pdf_test = io.open(page_pdf_path, "r")
         if pdf_test then
           pdf_test:close()
           table.insert(page_pdfs, page_pdf_path)
         else
-          tw:append(string.format("  ✗ Failed to convert page %d (PDF not created)\n", i))
-        end
-      else
-        tw:append(string.format("  ✗ Failed to convert page %d\n", i))
-        if result and result ~= "" then
-          tw:append("    Error: " .. result:sub(1, 200) .. "\n")
+          tw:append(string.format("  ✗ Failed to convert page %d\n", i))
         end
       end
-      
-      -- Don't clean up SVG yet for debugging
-      -- os.remove(svg_path)
+    else
+      -- Unix: convert pages individually
+      for i, svg_path in ipairs(page_svgs) do
+        local page_pdf_path = os.tmpname() .. "_page" .. i .. ".pdf"
+        local cmd = string.format('%s -f pdf -o "%s" "%s" 2>&1', tools.rsvg, page_pdf_path, svg_path)
+        local handle = io.popen(cmd)
+        local result = handle:read("*a")
+        local success = handle:close()
+        
+        -- Check if PDF was actually created (more reliable than checking return code)
+        local pdf_test = io.open(page_pdf_path, "r")
+        if pdf_test then
+          pdf_test:close()
+          table.insert(page_pdfs, page_pdf_path)
+        else
+          tw:append(string.format("  ✗ Failed to convert page %d\n", i))
+          if result and result ~= "" then
+            tw:append("    Error: " .. result:sub(1, 200) .. "\n")
+          end
+          if not success then
+            tw:append("    Command failed to execute\n")
+          end
+        end
+      end
     end
     tw:append(string.format("  ✓ Converted %d pages to PDF\n", #page_pdfs))
     
@@ -941,7 +1075,12 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       -- Build quoted list of PDF paths
       local pdf_list_parts = {}
       for _, pdf in ipairs(page_pdfs) do
-        table.insert(pdf_list_parts, '"' .. pdf .. '"')
+        if IS_WINDOWS then
+          -- Convert to forward slashes for better Windows compatibility
+          table.insert(pdf_list_parts, '"' .. pdf:gsub("\\", "/") .. '"')
+        else
+          table.insert(pdf_list_parts, '"' .. pdf .. '"')
+        end
       end
       local pdf_list = table.concat(pdf_list_parts, ' ')
       
@@ -950,16 +1089,41 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
       
       if tools.pdfunite then
         tw:append("  Using pdfunite: " .. tools.pdfunite .. "\n")
-        local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
-        local handle = io.popen(combine_cmd)
-        result = handle:read("*a")
-        success = handle:close()
+        
+        if IS_WINDOWS then
+          -- Use VBScript for silent execution on Windows
+          local combine_cmd = string.format('%s %s "%s"', tools.pdfunite, pdf_list, pdf_path)
+          success = run_vbs_silent(combine_cmd)
+          result = ""  -- VBScript doesn't capture output
+        else
+          local combine_cmd = string.format('%s %s "%s" 2>&1', tools.pdfunite, pdf_list, pdf_path)
+          local handle = io.popen(combine_cmd)
+          result = handle:read("*a")
+          success = handle:close()
+        end
       elseif tools.pdftk then
         tw:append("  Using pdftk: " .. tools.pdftk .. "\n")
-        local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
-        local handle = io.popen(combine_cmd)
-        result = handle:read("*a")
-        success = handle:close()
+        
+        if IS_WINDOWS then
+          -- Use VBScript for silent execution on Windows
+          local combine_cmd = string.format('%s %s cat output "%s"', tools.pdftk, pdf_list, pdf_path)
+          success = run_vbs_silent(combine_cmd)
+          result = ""
+        else
+          local combine_cmd = string.format('%s %s cat output "%s" 2>&1', tools.pdftk, pdf_list, pdf_path)
+          local handle = io.popen(combine_cmd)
+          result = handle:read("*a")
+          success = handle:close()
+        end
+      end
+      
+      -- Check if output PDF was actually created (more reliable than exit code)
+      local pdf_created = false
+      local test_file = io.open(pdf_path, "r")
+      if test_file then
+        test_file:close()
+        pdf_created = true
+        success = true  -- Override success if file exists
       end
       
       -- Clean up individual page PDFs
@@ -967,7 +1131,7 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
         os.remove(pdf)
       end
       
-      if success then
+      if success and pdf_created then
         local total_pages_display = cover_svg_path and (num_pages + 1) or num_pages
         tw:append("✓ Created multi-page PDF: " .. pdf_path .. "\n")
         tw:append(string.format("  Total pages: %d\n", total_pages_display))

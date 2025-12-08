@@ -1,6 +1,6 @@
 # PacketReporter
 
-[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-public%20beta-orange.svg)](CHANGELOG.md)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Wireshark](https://img.shields.io/badge/Wireshark-4.0%2B-1679A7.svg)](https://www.wireshark.org/)
@@ -11,12 +11,11 @@
 
 A Wireshark plugin for generating network analysis reports with visualizations and PDF export.
 
-> **⚠️ Beta Status**: This is version 0.2.2, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
-
+> **⚠️ Beta Status**: This is version 0.2.3, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
+>
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 >
-> **Windows Users**: Ensure external tools are added to your system PATH. You may briefly see command prompt windows flash during startup and report generation—this is expected behavior and purely cosmetic.
-> (I could impplement a more silent behaviour by invoking a VBScript Wrapper - Not worth it on my opinion)
+> **✨ Windows Users**: Version 0.2.3 includes VBScript-based silent execution—console windows during report generation are now significantly reduced. Ensure external tools (rsvg-convert, pdfunite) are added to your system PATH.
 
 ## ✨ Features
 
