@@ -15,6 +15,14 @@ Tested with Wireshark 4.x
 
 if not gui_enabled() then return end
 
+-- Register plugin info with Wireshark
+set_plugin_info({
+    version = "0.2.3",
+    author = "PacketReporter Project",
+    description = "Generate comprehensive network analysis reports with charts and PDF export",
+    repository = "https://github.com/netwho/PacketReporter"
+})
+
 ------------------------------------------------------------
 -- Paper Size Configurations
 ------------------------------------------------------------
