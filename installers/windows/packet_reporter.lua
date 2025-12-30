@@ -1651,7 +1651,7 @@ local function collect_tls_stats()
     
     local protocols_lower = protocols:lower()
     
-    -- Check for QUIC (UDP 443)
+    -- Check for QUIC first (before TLS check)
     local is_quic = false
     if protocols_lower:find("quic") then
       is_quic = true
@@ -1683,68 +1683,132 @@ local function collect_tls_stats()
     -- TLS version detection: Use multiple methods for accuracy
     local version_str = nil
     
-    -- Method 1: Check supported_versions extension (most accurate for TLS 1.3)
-    local supported_versions = f2s(f_tls_supported_versions)
-    if supported_versions then
-      local sv_lower = supported_versions:lower()
-      if sv_lower:find("1%.3") or sv_lower:find("0x0304") then
-        version_str = "TLS 1.3"
-      elseif sv_lower:find("1%.2") or sv_lower:find("0x0303") then
-        version_str = "TLS 1.2"
-      elseif sv_lower:find("1%.1") or sv_lower:find("0x0302") then
-        version_str = "TLS 1.1"
-      elseif sv_lower:find("1%.0") or sv_lower:find("0x0301") then
-        version_str = "TLS 1.0"
+    -- Method 1: Check protocol string FIRST (most reliable for TLS 1.3)
+    -- Wireshark shows "TLSv1.3 Record Layer" so protocol string should contain "tlsv1.3"
+    -- Protocol string is colon-separated like "eth:ip:tcp:tlsv1.3" or "eth:ip:tcp:tls"
+    -- Check both the full string and each protocol part individually
+    -- IMPORTANT: Check TLS 1.3 patterns BEFORE TLS 1.2 to avoid false matches
+    
+    -- First check the full protocol string
+    local found_version = false
+    if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tlsv1:3") or
+       protocols_lower:find("tls%.1%.3") or protocols_lower:find("tls 1%.3") or
+       protocols_lower:find("tlsv1_3") or protocols_lower:find("tlsv13") or
+       protocols_lower:find("tls1%.3") or protocols_lower:find("tls 1:3") or
+       protocols_lower:find("tls%-1%.3") then
+      version_str = "TLS 1.3"
+      found_version = true
+    end
+    
+    -- Also check each protocol part individually (protocol string is colon-separated)
+    if not found_version then
+      for part in protocols_lower:gmatch("[^:]+") do
+        if part:find("tlsv1%.3") or part:find("tlsv1:3") or part:find("tlsv1_3") or
+           part:find("tlsv13") or part:find("tls1%.3") or part:find("tls%.1%.3") then
+          version_str = "TLS 1.3"
+          found_version = true
+          break
+        end
       end
     end
     
-    -- Method 2: Check protocol string for explicit TLS version (very accurate)
-    if not version_str then
-      -- More comprehensive pattern matching
-      if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tls%.1%.3") or 
-         protocols_lower:find("tlsv1_3") or protocols_lower:find("tlsv13") then
-        version_str = "TLS 1.3"
-      elseif protocols_lower:find("tlsv1%.2") or protocols_lower:find("tls%.1%.2") or
-             protocols_lower:find("tlsv1_2") or protocols_lower:find("tlsv12") then
+    -- Now check for other TLS versions (only if TLS 1.3 not found)
+    if not found_version then
+      if protocols_lower:find("tlsv1%.2") or protocols_lower:find("tlsv1:2") or
+         protocols_lower:find("tls%.1%.2") or protocols_lower:find("tls 1%.2") or
+         protocols_lower:find("tlsv1_2") or protocols_lower:find("tlsv12") or
+         protocols_lower:find("tls1%.2") or protocols_lower:find("tls 1:2") or
+         protocols_lower:find("tls%-1%.2") then
         version_str = "TLS 1.2"
-      elseif protocols_lower:find("tlsv1%.1") or protocols_lower:find("tls%.1%.1") or
-             protocols_lower:find("tlsv1_1") or protocols_lower:find("tlsv11") then
+        found_version = true
+      else
+        -- Check protocol parts for TLS 1.2
+        for part in protocols_lower:gmatch("[^:]+") do
+          if part:find("tlsv1%.2") or part:find("tlsv1:2") or part:find("tlsv1_2") or
+             part:find("tlsv12") or part:find("tls1%.2") or part:find("tls%.1%.2") then
+            version_str = "TLS 1.2"
+            found_version = true
+            break
+          end
+        end
+      end
+    end
+    
+    if not found_version then
+      if protocols_lower:find("tlsv1%.1") or protocols_lower:find("tlsv1:1") or
+         protocols_lower:find("tls%.1%.1") or protocols_lower:find("tls 1%.1") or
+         protocols_lower:find("tlsv1_1") or protocols_lower:find("tlsv11") then
         version_str = "TLS 1.1"
-      elseif protocols_lower:find("tlsv1%.0") or protocols_lower:find("tls%.1%.0") or
-             protocols_lower:find("tlsv1_0") or protocols_lower:find("tlsv10") then
+        found_version = true
+      end
+    end
+    
+    if not found_version then
+      if protocols_lower:find("tlsv1%.0") or protocols_lower:find("tlsv1:0") or
+         protocols_lower:find("tls%.1%.0") or protocols_lower:find("tls 1%.0") or
+         protocols_lower:find("tlsv1_0") or protocols_lower:find("tlsv10") then
         version_str = "TLS 1.0"
-      elseif protocols_lower:find("ssl%.3%.0") or protocols_lower:find("sslv3") or
-             protocols_lower:find("ssl%.3") then
+        found_version = true
+      end
+    end
+    
+    if not found_version then
+      if protocols_lower:find("ssl%.3%.0") or protocols_lower:find("sslv3") or
+         protocols_lower:find("ssl%.3") or protocols_lower:find("ssl 3") then
         version_str = "SSL 3.0"
       end
     end
     
+    -- Method 2: Check supported_versions extension (accurate for TLS 1.3)
+    if not version_str then
+      local supported_versions = f2s(f_tls_supported_versions)
+      if supported_versions then
+        local sv_lower = supported_versions:lower()
+        if sv_lower:find("1%.3") or sv_lower:find("1:3") or sv_lower:find("0x0304") or sv_lower:find("0304") then
+          version_str = "TLS 1.3"
+        elseif sv_lower:find("1%.2") or sv_lower:find("1:2") or sv_lower:find("0x0303") or sv_lower:find("0303") then
+          version_str = "TLS 1.2"
+        elseif sv_lower:find("1%.1") or sv_lower:find("1:1") or sv_lower:find("0x0302") or sv_lower:find("0302") then
+          version_str = "TLS 1.1"
+        elseif sv_lower:find("1%.0") or sv_lower:find("1:0") or sv_lower:find("0x0301") or sv_lower:find("0301") then
+          version_str = "TLS 1.0"
+        end
+      end
+    end
+    
     -- Method 3: Fall back to version field (least accurate, especially for TLS 1.3)
+    -- Note: TLS 1.3 uses 0x0303 in record layer for compatibility, so this is unreliable
     if not version_str then
       local handshake_version = f2n(f_tls_handshake_version)
       local record_version = f2n(f_tls_record_version)
       
       -- Prefer handshake version (more accurate)
-      local version = handshake_version or record_version
-      
-      if version then
-        if version == 0x0304 then
+      if handshake_version then
+        if handshake_version == 0x0304 then
           version_str = "TLS 1.3"  -- Handshake version 0x0304 indicates TLS 1.3
-        elseif version == 0x0301 then
+        elseif handshake_version == 0x0301 then
           version_str = "TLS 1.0"
-        elseif version == 0x0302 then
+        elseif handshake_version == 0x0302 then
           version_str = "TLS 1.1"
-        elseif version == 0x0303 then
+        elseif handshake_version == 0x0303 then
+          version_str = "TLS 1.2"  -- Handshake version 0x0303 is TLS 1.2
+        elseif handshake_version == 0x0300 then
+          version_str = "SSL 3.0"
+        end
+      elseif record_version then
+        -- Only record version available - be very careful
+        if record_version == 0x0304 then
+          version_str = "TLS 1.3"
+        elseif record_version == 0x0301 then
+          version_str = "TLS 1.0"
+        elseif record_version == 0x0302 then
+          version_str = "TLS 1.1"
+        elseif record_version == 0x0303 then
           -- 0x0303 in record layer is ambiguous: could be TLS 1.2 or TLS 1.3
-          -- If handshake version exists and is 0x0303, it's TLS 1.2
-          -- If only record version is 0x0303, it could be either, but protocol string should have caught it
-          if handshake_version == 0x0303 then
-            version_str = "TLS 1.2"
-          else
-            -- Only record version available - assume TLS 1.2 (safer default)
-            version_str = "TLS 1.2"
-          end
-        elseif version == 0x0300 then
+          -- Since protocol string didn't match, we can't be sure, but default to TLS 1.2
+          -- This is a limitation - we should have caught it from protocol string
+          version_str = "TLS 1.2"
+        elseif record_version == 0x0300 then
           version_str = "SSL 3.0"
         end
       end
