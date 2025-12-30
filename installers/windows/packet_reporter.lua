@@ -2101,21 +2101,28 @@ local function generate_detailed_report_internal()
   end
   tw:append(string.format("TLS versions found: %d, SNI names: %d%s\n", tls_version_count, tls_sni_count, quic_info))
   
-  -- Debug: Show sample protocol strings from first TLS packets
-  tw:append("\nDEBUG - Protocol string analysis:\n")
+  -- Force flush and add very visible debug output
+  tw:append("\n")
+  tw:append("*** DEBUG OUTPUT START ***\n")
+  tw:append("========================================\n")
+  tw:append("DEBUG - Protocol string analysis\n")
+  tw:append("========================================\n")
+  tw:append(string.format("debug_protocol_samples exists: %s\n", tostring(tls_stats.debug_protocol_samples ~= nil)))
   if tls_stats.debug_protocol_samples then
+    tw:append(string.format("debug_protocol_samples count: %d\n", #tls_stats.debug_protocol_samples))
     if #tls_stats.debug_protocol_samples > 0 then
       tw:append("Sample protocol strings from first TLS packets:\n")
       for i, proto_str in ipairs(tls_stats.debug_protocol_samples) do
         tw:append(string.format("  [%d] %s\n", i, proto_str))
       end
     else
-      tw:append("  (No protocol samples collected - tls_packet_count may be 0)\n")
+      tw:append("  (No protocol samples collected - tls_packet_count was 0 or samples not stored)\n")
     end
   else
     tw:append("  (debug_protocol_samples table not initialized)\n")
   end
-  tw:append("(This helps identify the protocol string format)\n\n")
+  tw:append("========================================\n")
+  tw:append("\n")
   
   -- Debug: Show protocol strings we couldn't identify (helps diagnose detection issues)
   if tls_stats.debug_unknown_protocols and #tls_stats.debug_unknown_protocols > 0 then
