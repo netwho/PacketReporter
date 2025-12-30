@@ -144,13 +144,14 @@ sudo usermod -aG wireshark $USER
 
 **Key Features**:
 - Checks both Program Files locations (x64/x86)
-- Detects Chocolatey package manager
-- Provides manual installation links
+- Creates plugin and configuration directories
+- Copies default logo and description files
+- Creates tools directory for optional dependencies
 - Uses plugin directory: `%APPDATA%\Wireshark\plugins\`
 
 **Prerequisites**:
 - Wireshark 4.0+ with Npcap
-- Optional: Chocolatey, rsvg-convert, poppler
+- Optional (for PDF export): console-rsvg-convert, PDFtk
 
 **Installation**:
 ```powershell
@@ -158,15 +159,26 @@ cd installers\windows
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-**After Installation** (with Chocolatey):
-```powershell
-choco install rsvg-convert poppler
-```
+**After Installation** (Recommended Tools for PDF Export):
 
-**After Installation** (manual):
-- Download [rsvg-convert](https://github.com/miyako/console-rsvg-convert/releases)
-- Download [Poppler](https://github.com/oschwartz10612/poppler-windows/releases)
-- Add to PATH
+1. **console-rsvg-convert** (SVG Converter):
+   - Download from: https://github.com/miyako/console-rsvg-convert/releases
+   - Copy the single `.exe` file to `C:\Windows\` or `C:\Tools\` (created by installer)
+   - If using `C:\Tools\`, add to PATH:
+     ```powershell
+     [Environment]::SetEnvironmentVariable(
+         "Path",
+         [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Tools",
+         "User"
+     )
+     ```
+
+2. **PDFtk** (PDF Combiner):
+   - Download from: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/
+   - Install PDFtk Free (includes command-line tool)
+   - Installer will add to PATH automatically
+
+**Note**: This combination (console-rsvg-convert + PDFtk) works well and is recommended.
 
 ---
 
@@ -188,14 +200,13 @@ The installer places the Lua plugin in the following locations:
 - **Wireshark 4.0+** - Network protocol analyzer
 
 ### Optional (For PDF Export)
-- **SVG Converter** (choose one):
-  - `rsvg-convert` (recommended - fastest)
-  - Inkscape
-  - ImageMagick
+- **SVG Converter** (recommended):
+  - `console-rsvg-convert` - Single executable, fastest and most reliable
+  - Alternatives: Inkscape, ImageMagick
 
-- **PDF Combiner** (choose one):
-  - `pdfunite` (recommended - part of Poppler)
-  - `pdftk`
+- **PDF Combiner** (recommended):
+  - `PDFtk` - Easy installation, includes GUI and command-line tool
+  - Alternative: `pdfunite` (part of Poppler)
 
 ## Installation Verification
 
@@ -262,9 +273,8 @@ sudo dnf install librsvg2-tools poppler-utils
 ```
 
 **Windows**:
-```powershell
-choco install rsvg-convert poppler
-```
+1. **console-rsvg-convert**: Download from [GitHub Releases](https://github.com/miyako/console-rsvg-convert/releases) and copy the single `.exe` to a directory in PATH (e.g., `C:\Windows\`)
+2. **PDFtk**: Download from [PDF Labs](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/) and run the installer
 
 ### Permission Errors
 
