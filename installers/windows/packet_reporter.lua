@@ -265,7 +265,7 @@ local function find_cmd(candidates)
     if c:find("/") or c:find("\\") then
       -- Full path candidate - check for .exe extension on Windows
       local paths_to_check = {c}
-      if IS_WINDOWS and not c:match("\.exe$") then
+      if IS_WINDOWS and not c:match("%.exe$") then
         table.insert(paths_to_check, c .. ".exe")
       end
       
