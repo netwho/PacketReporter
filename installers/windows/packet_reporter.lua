@@ -1849,6 +1849,21 @@ local function collect_tls_stats()
     -- Only record known TLS/SSL versions (skip if we couldn't determine)
     if version_str then
       stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
+    else
+      -- Debug: Track packets where we couldn't determine version
+      -- This helps identify what protocol strings look like
+      if not stats.debug_unknown_protocols then
+        stats.debug_unknown_protocols = {}
+      end
+      local proto_key = protocols_lower
+      if pinfo_protocol and pinfo_protocol ~= "" then
+        proto_key = proto_key .. " | pinfo: " .. pinfo_protocol
+      end
+      -- Only store first 5 unique protocol strings to avoid memory issues
+      if not stats.debug_unknown_protocols[proto_key] and 
+         #stats.debug_unknown_protocols < 5 then
+        table.insert(stats.debug_unknown_protocols, proto_key)
+      end
     end
     
     -- SNI (Server Name Indication)
@@ -2067,6 +2082,15 @@ local function generate_detailed_report_internal()
     quic_info = string.format(", QUIC packets: %d", tls_stats.quic_count)
   end
   tw:append(string.format("TLS versions found: %d, SNI names: %d%s\n", tls_version_count, tls_sni_count, quic_info))
+  
+  -- Debug: Show protocol strings we couldn't identify (helps diagnose detection issues)
+  if tls_stats.debug_unknown_protocols and #tls_stats.debug_unknown_protocols > 0 then
+    tw:append("\nDEBUG - Sample protocol strings from TLS packets we couldn't identify:\n")
+    for i, proto_str in ipairs(tls_stats.debug_unknown_protocols) do
+      tw:append(string.format("  [%d] %s\n", i, proto_str))
+    end
+    tw:append("(This helps identify why TLS 1.3/QUIC might not be detected)\n\n")
+  end
   
   -- Helper to convert dict to sorted array
   local function dict_to_sorted_array(dict, limit)
