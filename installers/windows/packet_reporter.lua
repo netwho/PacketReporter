@@ -1651,6 +1651,12 @@ local function collect_tls_stats()
     
     local protocols_lower = protocols:lower()
     
+    -- Also try to get protocol from pinfo (more reliable for TLS version)
+    local pinfo_protocol = ""
+    if pinfo and pinfo.cols and pinfo.cols.protocol then
+      pinfo_protocol = tostring(pinfo.cols.protocol):lower()
+    end
+    
     -- Check for QUIC first (before TLS check)
     local is_quic = false
     if protocols_lower:find("quic") then
@@ -1683,19 +1689,25 @@ local function collect_tls_stats()
     -- TLS version detection: Use multiple methods for accuracy
     local version_str = nil
     
-    -- Method 1: Check protocol string FIRST (most reliable for TLS 1.3)
-    -- Wireshark shows "TLSv1.3 Record Layer" so protocol string should contain "tlsv1.3"
+    -- Method 1: Check protocol string and pinfo protocol FIRST (most reliable for TLS 1.3)
+    -- Wireshark shows "TLSv1.3 Record Layer" so check both frame.protocols and pinfo.cols.protocol
     -- Protocol string is colon-separated like "eth:ip:tcp:tlsv1.3" or "eth:ip:tcp:tls"
-    -- Check both the full string and each protocol part individually
     -- IMPORTANT: Check TLS 1.3 patterns BEFORE TLS 1.2 to avoid false matches
     
-    -- First check the full protocol string
+    -- Combine protocol string and pinfo protocol for checking
+    local all_protocols = protocols_lower
+    if pinfo_protocol and pinfo_protocol ~= "" then
+      all_protocols = all_protocols .. " " .. pinfo_protocol
+    end
+    
+    -- First check the full protocol string and pinfo protocol
     local found_version = false
-    if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tlsv1:3") or
-       protocols_lower:find("tls%.1%.3") or protocols_lower:find("tls 1%.3") or
-       protocols_lower:find("tlsv1_3") or protocols_lower:find("tlsv13") or
-       protocols_lower:find("tls1%.3") or protocols_lower:find("tls 1:3") or
-       protocols_lower:find("tls%-1%.3") then
+    if all_protocols:find("tlsv1%.3") or all_protocols:find("tlsv1:3") or
+       all_protocols:find("tls%.1%.3") or all_protocols:find("tls 1%.3") or
+       all_protocols:find("tlsv1_3") or all_protocols:find("tlsv13") or
+       all_protocols:find("tls1%.3") or all_protocols:find("tls 1:3") or
+       all_protocols:find("tls%-1%.3") or all_protocols:find("tlsv1%.3 record") or
+       all_protocols:find("tlsv1%.3 layer") then
       version_str = "TLS 1.3"
       found_version = true
     end
@@ -1712,13 +1724,23 @@ local function collect_tls_stats()
       end
     end
     
+    -- Also check pinfo protocol directly
+    if not found_version and pinfo_protocol ~= "" then
+      if pinfo_protocol:find("tlsv1%.3") or pinfo_protocol:find("tlsv1:3") or
+         pinfo_protocol:find("tlsv1_3") or pinfo_protocol:find("tlsv13") or
+         pinfo_protocol:find("tls 1%.3") or pinfo_protocol:find("tls%.1%.3") then
+        version_str = "TLS 1.3"
+        found_version = true
+      end
+    end
+    
     -- Now check for other TLS versions (only if TLS 1.3 not found)
     if not found_version then
-      if protocols_lower:find("tlsv1%.2") or protocols_lower:find("tlsv1:2") or
-         protocols_lower:find("tls%.1%.2") or protocols_lower:find("tls 1%.2") or
-         protocols_lower:find("tlsv1_2") or protocols_lower:find("tlsv12") or
-         protocols_lower:find("tls1%.2") or protocols_lower:find("tls 1:2") or
-         protocols_lower:find("tls%-1%.2") then
+      if all_protocols:find("tlsv1%.2") or all_protocols:find("tlsv1:2") or
+         all_protocols:find("tls%.1%.2") or all_protocols:find("tls 1%.2") or
+         all_protocols:find("tlsv1_2") or all_protocols:find("tlsv12") or
+         all_protocols:find("tls1%.2") or all_protocols:find("tls 1:2") or
+         all_protocols:find("tls%-1%.2") then
         version_str = "TLS 1.2"
         found_version = true
       else
@@ -1732,29 +1754,39 @@ local function collect_tls_stats()
           end
         end
       end
+      
+      -- Also check pinfo protocol for TLS 1.2
+      if not found_version and pinfo_protocol ~= "" then
+        if pinfo_protocol:find("tlsv1%.2") or pinfo_protocol:find("tlsv1:2") or
+           pinfo_protocol:find("tlsv1_2") or pinfo_protocol:find("tlsv12") or
+           pinfo_protocol:find("tls 1%.2") or pinfo_protocol:find("tls%.1%.2") then
+          version_str = "TLS 1.2"
+          found_version = true
+        end
+      end
     end
     
     if not found_version then
-      if protocols_lower:find("tlsv1%.1") or protocols_lower:find("tlsv1:1") or
-         protocols_lower:find("tls%.1%.1") or protocols_lower:find("tls 1%.1") or
-         protocols_lower:find("tlsv1_1") or protocols_lower:find("tlsv11") then
+      if all_protocols:find("tlsv1%.1") or all_protocols:find("tlsv1:1") or
+         all_protocols:find("tls%.1%.1") or all_protocols:find("tls 1%.1") or
+         all_protocols:find("tlsv1_1") or all_protocols:find("tlsv11") then
         version_str = "TLS 1.1"
         found_version = true
       end
     end
     
     if not found_version then
-      if protocols_lower:find("tlsv1%.0") or protocols_lower:find("tlsv1:0") or
-         protocols_lower:find("tls%.1%.0") or protocols_lower:find("tls 1%.0") or
-         protocols_lower:find("tlsv1_0") or protocols_lower:find("tlsv10") then
+      if all_protocols:find("tlsv1%.0") or all_protocols:find("tlsv1:0") or
+         all_protocols:find("tls%.1%.0") or all_protocols:find("tls 1%.0") or
+         all_protocols:find("tlsv1_0") or all_protocols:find("tlsv10") then
         version_str = "TLS 1.0"
         found_version = true
       end
     end
     
     if not found_version then
-      if protocols_lower:find("ssl%.3%.0") or protocols_lower:find("sslv3") or
-         protocols_lower:find("ssl%.3") or protocols_lower:find("ssl 3") then
+      if all_protocols:find("ssl%.3%.0") or all_protocols:find("sslv3") or
+         all_protocols:find("ssl%.3") or all_protocols:find("ssl 3") then
         version_str = "SSL 3.0"
       end
     end
