@@ -19,10 +19,10 @@ function Write-ColorOutput($ForegroundColor) {
     $host.UI.RawUI.ForegroundColor = $fc
 }
 
-function Write-Success { Write-ColorOutput Green "✓ $args" }
-function Write-Warning { Write-ColorOutput Yellow "⚠ $args" }
-function Write-Error { Write-ColorOutput Red "✗ $args" }
-function Write-Info { Write-ColorOutput Cyan "→ $args" }
+function Write-Success { Write-ColorOutput Green "[OK] $args" }
+function Write-Warning { Write-ColorOutput Yellow "[WARNING] $args" }
+function Write-Error { Write-ColorOutput Red "[ERROR] $args" }
+function Write-Info { Write-ColorOutput Cyan "-> $args" }
 function Write-Header { Write-ColorOutput Blue $args }
 
 Write-Header "============================================"

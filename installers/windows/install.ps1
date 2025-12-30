@@ -22,10 +22,10 @@ function Write-ColorOutput($ForegroundColor) {
     $host.UI.RawUI.ForegroundColor = $fc
 }
 
-function Write-Success { Write-ColorOutput Green "✓ $args" }
-function Write-Warning { Write-ColorOutput Yellow "⚠ $args" }
-function Write-Error { Write-ColorOutput Red "✗ $args" }
-function Write-Info { Write-ColorOutput Cyan "→ $args" }
+function Write-Success { Write-ColorOutput Green "[OK] $args" }
+function Write-Warning { Write-ColorOutput Yellow "[WARNING] $args" }
+function Write-Error { Write-ColorOutput Red "[ERROR] $args" }
+function Write-Info { Write-ColorOutput Cyan "-> $args" }
 function Write-Header { Write-ColorOutput Blue $args }
 
 Write-Header "============================================"
@@ -272,12 +272,12 @@ if (-not $hasConverter -or -not $hasCombiner) {
 # Final instructions
 Write-Output ""
 Write-Header "============================================"
-Write-ColorOutput Green "✓ Installation Complete!"
+Write-ColorOutput Green "[OK] Installation Complete!"
 Write-Header "============================================"
 Write-Output ""
 Write-Header "Next steps:"
 Write-Output "  1. Restart Wireshark"
-Write-Output "  2. Go to: Tools → PacketReporter"
+Write-Output "  2. Go to: Tools -> PacketReporter"
 Write-Output "  3. Choose a report type:"
 Write-Output "     • Summary Report - Quick overview"
 Write-Output "     • Detailed Report (A4) - Comprehensive analysis"
