@@ -119,6 +119,19 @@ pcall(function() f_tcp_window_size = F("tcp.window_size") end)
 pcall(function() f_tcp_len = F("tcp.len") end)
 pcall(function() f_tcp_analysis_ack_rtt = F("tcp.analysis.ack_rtt") end)
 
+-- Phase 2: UDP Layer (for QUIC detection)
+local f_udp_port, f_udp_dstport, f_udp_srcport
+pcall(function() f_udp_port = F("udp.port") end)
+pcall(function() f_udp_dstport = F("udp.dstport") end)
+pcall(function() f_udp_srcport = F("udp.srcport") end)
+
+-- TLS supported_versions extension (for accurate TLS 1.3 detection)
+local f_tls_supported_versions
+pcall(function() f_tls_supported_versions = F("tls.handshake.extensions_supported_versions") end)
+if not f_tls_supported_versions then
+  pcall(function() f_tls_supported_versions = F("ssl.handshake.extensions_supported_versions") end)
+end
+
 ------------------------------------------------------------
 -- Utility Functions
 ------------------------------------------------------------
@@ -1600,13 +1613,14 @@ local function collect_tcp_stats()
   return stats
 end
 
--- Collect TLS/SSL statistics
+-- Collect TLS/SSL and QUIC statistics
 local function collect_tls_stats()
   local stats = {
     versions = {},
     sni_names = {},
     cipher_suites = {},
     cert_common_names = {},
+    quic_count = 0,
     total_connections = 0
   }
   
@@ -1631,39 +1645,87 @@ local function collect_tls_stats()
   function tap.packet(pinfo, tvb)
     packet_count = packet_count + 1
     
-    -- Check if this packet contains TLS/SSL by looking at protocols
+    -- Check if this packet contains TLS/SSL or QUIC by looking at protocols
     local protocols = f2s(f_frame_protocols)
     if not protocols then return end
     
+    local protocols_lower = protocols:lower()
+    
+    -- Check for QUIC (UDP 443)
+    local is_quic = false
+    if protocols_lower:find("quic") then
+      is_quic = true
+      stats.quic_count = stats.quic_count + 1
+      -- QUIC uses TLS 1.3, so count it as TLS 1.3
+      stats.versions["TLS 1.3"] = (stats.versions["TLS 1.3"] or 0) + 1
+      return
+    end
+    
+    -- Check for UDP port 443 (potential QUIC)
+    local udp_dst = f2n(f_udp_dstport)
+    local udp_src = f2n(f_udp_srcport)
+    if (udp_dst == 443 or udp_src == 443) and not (protocols_lower:find("ssl") or protocols_lower:find("tls")) then
+      -- UDP 443 without TLS/SSL might be QUIC
+      if protocols_lower:find("udp") then
+        stats.quic_count = stats.quic_count + 1
+        stats.versions["QUIC"] = (stats.versions["QUIC"] or 0) + 1
+        return
+      end
+    end
+    
     -- Check for ssl or tls in the protocol stack
-    if not (protocols:lower():find("ssl") or protocols:lower():find("tls")) then
+    if not (protocols_lower:find("ssl") or protocols_lower:find("tls")) then
       return
     end
     
     tls_packet_count = tls_packet_count + 1
     
-    -- TLS version detection: Check protocol name first (accurate for TLS 1.3),
-    -- then fall back to version field (TLS 1.3 uses 0x0303 in record layer for compatibility)
+    -- TLS version detection: Use multiple methods for accuracy
     local version_str = nil
-    local protocols_lower = protocols:lower()
     
-    -- Check protocol string for explicit TLS version (most accurate)
-    if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tls 1%.3") then
-      version_str = "TLS 1.3"
-    elseif protocols_lower:find("tlsv1%.2") or protocols_lower:find("tls 1%.2") then
-      version_str = "TLS 1.2"
-    elseif protocols_lower:find("tlsv1%.1") or protocols_lower:find("tls 1%.1") then
-      version_str = "TLS 1.1"
-    elseif protocols_lower:find("tlsv1%.0") or protocols_lower:find("tls 1%.0") then
-      version_str = "TLS 1.0"
-    elseif protocols_lower:find("ssl 3%.0") or protocols_lower:find("sslv3") then
-      version_str = "SSL 3.0"
-    else
-      -- Fall back to version field (but be careful: TLS 1.3 uses 0x0303 in record layer)
-      local version = f2n(f_tls_handshake_version)  -- Prefer handshake version (more accurate)
-      if not version then
-        version = f2n(f_tls_record_version)  -- Fall back to record version
+    -- Method 1: Check supported_versions extension (most accurate for TLS 1.3)
+    local supported_versions = f2s(f_tls_supported_versions)
+    if supported_versions then
+      local sv_lower = supported_versions:lower()
+      if sv_lower:find("1%.3") or sv_lower:find("0x0304") then
+        version_str = "TLS 1.3"
+      elseif sv_lower:find("1%.2") or sv_lower:find("0x0303") then
+        version_str = "TLS 1.2"
+      elseif sv_lower:find("1%.1") or sv_lower:find("0x0302") then
+        version_str = "TLS 1.1"
+      elseif sv_lower:find("1%.0") or sv_lower:find("0x0301") then
+        version_str = "TLS 1.0"
       end
+    end
+    
+    -- Method 2: Check protocol string for explicit TLS version (very accurate)
+    if not version_str then
+      -- More comprehensive pattern matching
+      if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tls%.1%.3") or 
+         protocols_lower:find("tlsv1_3") or protocols_lower:find("tlsv13") then
+        version_str = "TLS 1.3"
+      elseif protocols_lower:find("tlsv1%.2") or protocols_lower:find("tls%.1%.2") or
+             protocols_lower:find("tlsv1_2") or protocols_lower:find("tlsv12") then
+        version_str = "TLS 1.2"
+      elseif protocols_lower:find("tlsv1%.1") or protocols_lower:find("tls%.1%.1") or
+             protocols_lower:find("tlsv1_1") or protocols_lower:find("tlsv11") then
+        version_str = "TLS 1.1"
+      elseif protocols_lower:find("tlsv1%.0") or protocols_lower:find("tls%.1%.0") or
+             protocols_lower:find("tlsv1_0") or protocols_lower:find("tlsv10") then
+        version_str = "TLS 1.0"
+      elseif protocols_lower:find("ssl%.3%.0") or protocols_lower:find("sslv3") or
+             protocols_lower:find("ssl%.3") then
+        version_str = "SSL 3.0"
+      end
+    end
+    
+    -- Method 3: Fall back to version field (least accurate, especially for TLS 1.3)
+    if not version_str then
+      local handshake_version = f2n(f_tls_handshake_version)
+      local record_version = f2n(f_tls_record_version)
+      
+      -- Prefer handshake version (more accurate)
+      local version = handshake_version or record_version
       
       if version then
         if version == 0x0304 then
@@ -1673,16 +1735,22 @@ local function collect_tls_stats()
         elseif version == 0x0302 then
           version_str = "TLS 1.1"
         elseif version == 0x0303 then
-          -- 0x0303 could be TLS 1.2 or TLS 1.3 (record layer compatibility)
-          -- If we didn't detect TLS 1.3 from protocol string, assume TLS 1.2
-          version_str = "TLS 1.2"
+          -- 0x0303 in record layer is ambiguous: could be TLS 1.2 or TLS 1.3
+          -- If handshake version exists and is 0x0303, it's TLS 1.2
+          -- If only record version is 0x0303, it could be either, but protocol string should have caught it
+          if handshake_version == 0x0303 then
+            version_str = "TLS 1.2"
+          else
+            -- Only record version available - assume TLS 1.2 (safer default)
+            version_str = "TLS 1.2"
+          end
         elseif version == 0x0300 then
           version_str = "SSL 3.0"
         end
       end
     end
     
-    -- Only record known TLS/SSL versions
+    -- Only record known TLS/SSL versions (skip if we couldn't determine)
     if version_str then
       stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
     end
@@ -1898,7 +1966,11 @@ local function generate_detailed_report_internal()
   for k,v in pairs(tls_stats.sni_names) do 
     tls_sni_count = tls_sni_count + 1
   end
-  tw:append(string.format("TLS versions found: %d, SNI names: %d\n", tls_version_count, tls_sni_count))
+  local quic_info = ""
+  if tls_stats.quic_count and tls_stats.quic_count > 0 then
+    quic_info = string.format(", QUIC packets: %d", tls_stats.quic_count)
+  end
+  tw:append(string.format("TLS versions found: %d, SNI names: %d%s\n", tls_version_count, tls_sni_count, quic_info))
   
   -- Helper to convert dict to sorted array
   local function dict_to_sorted_array(dict, limit)
@@ -2351,7 +2423,7 @@ local function generate_detailed_report_internal()
     
     -- TLS Version distribution (horizontal bar chart)
     if #top_tls_versions > 0 then
-      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 TLS/SSL Version Distribution</text>\n', y_pos))
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 TLS/SSL/QUIC Version Distribution</text>\n', y_pos))
       y_pos = y_pos + 25
       
       local bar_height = 30
@@ -2380,9 +2452,16 @@ local function generate_detailed_report_internal()
         add(string.format('<rect x="%d" y="%d" width="%.1f" height="%d" fill="%s" fill-opacity="0.8"/>\n',
           bar_x_start, bar_y, bar_width, bar_height, color))
         
-        -- Value label (right side of bar)
-        add(string.format('<text x="%.1f" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#333">%d</text>\n',
-          bar_x_start + bar_width + 8, bar_y + bar_height/2 + 4, item.value))
+        -- Value label (inside bar if wide enough, otherwise outside)
+        local label_x = bar_x_start + bar_width + 8
+        local label_fill = "#333"
+        if bar_width > 50 then
+          -- Put label inside bar if bar is wide enough
+          label_x = bar_x_start + bar_width - 5
+          label_fill = "#fff"
+        end
+        add(string.format('<text x="%.1f" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="600" fill="%s">%d</text>\n',
+          label_x, bar_y + bar_height/2 + 4, label_fill, item.value))
       end
       
       y_pos = y_pos + (#top_tls_versions * (bar_height + 8)) + 30
