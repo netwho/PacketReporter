@@ -22,10 +22,10 @@ function Write-ColorOutput($ForegroundColor) {
     $host.UI.RawUI.ForegroundColor = $fc
 }
 
-function Write-Success { Write-ColorOutput Green "[OK] $args" }
-function Write-Warning { Write-ColorOutput Yellow "[WARNING] $args" }
-function Write-Error { Write-ColorOutput Red "[ERROR] $args" }
-function Write-Info { Write-ColorOutput Cyan "-> $args" }
+function Write-Success { Write-ColorOutput Green "✓ $args" }
+function Write-Warning { Write-ColorOutput Yellow "⚠ $args" }
+function Write-Error { Write-ColorOutput Red "✗ $args" }
+function Write-Info { Write-ColorOutput Cyan "→ $args" }
 function Write-Header { Write-ColorOutput Blue $args }
 
 Write-Header "============================================"
@@ -153,12 +153,35 @@ if (-not (Test-Path $configDir)) {
 # Copy default logo and description if they don't exist
 if ((-not (Test-Path "$configDir\Logo.png")) -and (Test-Path "$ScriptDir\Logo.png")) {
     Copy-Item "$ScriptDir\Logo.png" "$configDir\" -Force
-    Write-Success "Copied default logo"
+    Write-Success "Copied default logo to $configDir\Logo.png"
+} else {
+    if (Test-Path "$configDir\Logo.png") {
+        Write-Success "Logo already exists in config directory"
+    }
 }
 
 if ((-not (Test-Path "$configDir\packet_reporter.txt")) -and (Test-Path "$ScriptDir\packet_reporter.txt")) {
     Copy-Item "$ScriptDir\packet_reporter.txt" "$configDir\" -Force
-    Write-Success "Copied default description"
+    Write-Success "Copied default description to $configDir\packet_reporter.txt"
+} else {
+    if (Test-Path "$configDir\packet_reporter.txt") {
+        Write-Success "Description file already exists in config directory"
+    }
+}
+
+# Create tools directory suggestion for console-rsvg-convert
+$toolsDir = "C:\Tools"
+if (-not (Test-Path $toolsDir)) {
+    Write-Info "Creating tools directory for optional dependencies..."
+    try {
+        New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+        Write-Success "Created tools directory: $toolsDir"
+        Write-Info "You can copy console-rsvg-convert.exe here and add to PATH"
+    } catch {
+        Write-Warning "Could not create tools directory (may require admin): $toolsDir"
+    }
+} else {
+    Write-Success "Tools directory exists: $toolsDir"
 }
 
 # Check for PDF export dependencies
@@ -227,43 +250,30 @@ Write-Output ""
 if (-not $hasConverter -or -not $hasCombiner) {
     Write-Warning "Optional dependencies missing (PDF export will be limited)"
     Write-Output ""
-    Write-Header "To enable full PDF export functionality:"
+    Write-Header "Recommended Tools for PDF Export:"
+    Write-Output ""
+    Write-ColorOutput Green "  This combination works well:"
     Write-Output ""
     
-    if (Get-Command choco -ErrorAction SilentlyContinue) {
-        Write-ColorOutput Green "  Using Chocolatey (recommended):"
-        if (-not $hasConverter) {
-            Write-Output "    choco install rsvg-convert"
-            Write-Output "    # Or alternatively:"
-            Write-Output "    choco install inkscape"
-        }
-        if (-not $hasCombiner) {
-            Write-Output "    choco install poppler"
-            Write-Output "    # Or alternatively:"
-            Write-Output "    choco install pdftk"
-        }
+    if (-not $hasConverter) {
+        Write-ColorOutput Cyan "  1. console-rsvg-convert (SVG Converter):"
+        Write-Output "     • Download: https://github.com/miyako/console-rsvg-convert/releases"
+        Write-Output "     • Copy the single .exe file to a directory in PATH"
+        Write-Output "     • Option A: Copy to C:\Windows\ (already in PATH)"
+        Write-Output "     • Option B: Copy to C:\Tools\ and add to PATH"
+        Write-Output "       (Directory created: $toolsDir)"
         Write-Output ""
-        Write-ColorOutput Green "  Install all at once:"
-        Write-Output "    choco install rsvg-convert poppler"
-    } else {
-        Write-ColorOutput Green "  Manual installation:"
-        Write-Output ""
-        if (-not $hasConverter) {
-            Write-Output "  SVG Converter (choose one):"
-            Write-Output "    • librsvg: https://github.com/miyako/console-rsvg-convert/releases"
-            Write-Output "    • Inkscape: https://inkscape.org/release/"
-            Write-Output "    • ImageMagick: https://imagemagick.org/script/download.php#windows"
-            Write-Output ""
-        }
-        if (-not $hasCombiner) {
-            Write-Output "  PDF Combiner (choose one):"
-            Write-Output "    • Poppler: https://github.com/oschwartz10612/poppler-windows/releases"
-            Write-Output "    • PDFtk: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
-            Write-Output ""
-        }
-        Write-Output "  Or install Chocolatey first:"
-        Write-Output "    https://chocolatey.org/install"
     }
+    
+    if (-not $hasCombiner) {
+        Write-ColorOutput Cyan "  2. PDFtk (PDF Combiner):"
+        Write-Output "     • Download: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
+        Write-Output "     • Install PDFtk Free (includes command-line tool)"
+        Write-Output "     • Installer will add to PATH automatically"
+        Write-Output ""
+    }
+    
+    Write-ColorOutput Yellow "  Alternative tools are also supported (see requirements.md)"
     Write-Output ""
 } else {
     Write-Success "All PDF export dependencies are installed"
@@ -272,12 +282,12 @@ if (-not $hasConverter -or -not $hasCombiner) {
 # Final instructions
 Write-Output ""
 Write-Header "============================================"
-Write-ColorOutput Green "[OK] Installation Complete!"
+Write-ColorOutput Green "✓ Installation Complete!"
 Write-Header "============================================"
 Write-Output ""
 Write-Header "Next steps:"
 Write-Output "  1. Restart Wireshark"
-Write-Output "  2. Go to: Tools -> PacketReporter"
+Write-Output "  2. Go to: Tools → PacketReporter"
 Write-Output "  3. Choose a report type:"
 Write-Output "     • Summary Report - Quick overview"
 Write-Output "     • Detailed Report (A4) - Comprehensive analysis"
