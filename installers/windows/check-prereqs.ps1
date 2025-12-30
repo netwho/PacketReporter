@@ -170,11 +170,22 @@ Write-Output ""
 # Check for PDFtk (Recommended PDF Combiner)
 Write-Info "Checking for PDFtk (recommended PDF combiner)..."
 $pdftkFound = $false
+$pdftkPath = $null
+
+# Check common installation paths
+$pdftkPaths = @(
+    "${env:ProgramFiles}\PDFtk\bin\pdftk.exe",
+    "${env:ProgramFiles(x86)}\PDFtk\bin\pdftk.exe",
+    "${env:ProgramFiles}\PDFtk Server\bin\pdftk.exe",
+    "${env:ProgramFiles(x86)}\PDFtk Server\bin\pdftk.exe"
+)
+
+# First check if it's in PATH
 if (Get-Command pdftk -ErrorAction SilentlyContinue) {
     try {
         $pdftkVersion = (pdftk --version 2>&1) | Select-Object -First 1
         if ($pdftkVersion -and $pdftkVersion -notmatch "error|not found") {
-            Write-Success "PDFtk found"
+            Write-Success "PDFtk found (in PATH)"
             Write-Output "  Version: $pdftkVersion"
             $pdftkFound = $true
             $hasRecommendedCombiner = $true
@@ -184,13 +195,42 @@ if (Get-Command pdftk -ErrorAction SilentlyContinue) {
         try {
             $testResult = (pdftk --version 2>&1)
             if ($LASTEXITCODE -eq 0 -or $testResult) {
-                Write-Success "PDFtk found"
+                Write-Success "PDFtk found (in PATH)"
                 $pdftkFound = $true
                 $hasRecommendedCombiner = $true
                 $hasAnyCombiner = $true
             }
-        } catch {
-            Write-Warning "PDFtk command found but may not be working correctly"
+        } catch {}
+    }
+}
+
+# If not in PATH, check common installation directories
+if (-not $pdftkFound) {
+    foreach ($path in $pdftkPaths) {
+        if (Test-Path $path) {
+            $pdftkPath = $path
+            try {
+                $pdftkVersion = (& $path --version 2>&1) | Select-Object -First 1
+                Write-Success "PDFtk found"
+                Write-Output "  Path: $path"
+                if ($pdftkVersion -and $pdftkVersion -notmatch "error|not found") {
+                    Write-Output "  Version: $pdftkVersion"
+                }
+                Write-Warning "  PDFtk is installed but not in PATH"
+                Write-Output "  Add to PATH: $($path | Split-Path -Parent)"
+                $pdftkFound = $true
+                $hasRecommendedCombiner = $true
+                $hasAnyCombiner = $true
+                break
+            } catch {
+                Write-Success "PDFtk found at $path"
+                Write-Warning "  PDFtk is installed but not in PATH"
+                Write-Output "  Add to PATH: $($path | Split-Path -Parent)"
+                $pdftkFound = $true
+                $hasRecommendedCombiner = $true
+                $hasAnyCombiner = $true
+                break
+            }
         }
     }
 }

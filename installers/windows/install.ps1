@@ -238,11 +238,35 @@ if (Get-Command pdfunite -ErrorAction SilentlyContinue) {
 
 # Check for pdftk (alternative)
 Write-Info "Checking for pdftk (alternative PDF combiner)..."
+$pdftkFound = $false
+
+# Check if in PATH
 if (Get-Command pdftk -ErrorAction SilentlyContinue) {
     Write-Success "pdftk found"
+    $pdftkFound = $true
     $hasCombiner = $true
 } else {
-    Write-Warning "pdftk not found"
+    # Check common installation paths
+    $pdftkPaths = @(
+        "${env:ProgramFiles}\PDFtk\bin\pdftk.exe",
+        "${env:ProgramFiles(x86)}\PDFtk\bin\pdftk.exe",
+        "${env:ProgramFiles}\PDFtk Server\bin\pdftk.exe",
+        "${env:ProgramFiles(x86)}\PDFtk Server\bin\pdftk.exe"
+    )
+    
+    foreach ($path in $pdftkPaths) {
+        if (Test-Path $path) {
+            Write-Success "pdftk found at $path"
+            Write-Warning "  Note: PDFtk is installed but not in PATH"
+            $pdftkFound = $true
+            $hasCombiner = $true
+            break
+        }
+    }
+    
+    if (-not $pdftkFound) {
+        Write-Warning "pdftk not found"
+    }
 }
 
 # Installation recommendations
