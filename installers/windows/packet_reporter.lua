@@ -252,9 +252,9 @@ end
 -- Silent popen for Windows (returns handle or nil)
 local function popen_silent(cmd, mode)
   if IS_WINDOWS then
-    -- Use PowerShell wrapper to hide window
-    local ps_cmd = string.format('powershell.exe -WindowStyle Hidden -NonInteractive -Command "%s"', cmd:gsub('"', '`"'))
-    return io.popen(ps_cmd, mode)
+    -- Redirect stderr to suppress errors, but don't use PowerShell wrapper
+    -- as it interferes with command detection
+    return io.popen(cmd .. " 2>NUL", mode)
   else
     return io.popen(cmd, mode)
   end
@@ -263,24 +263,29 @@ end
 local function find_cmd(candidates)
   for _,c in ipairs(candidates) do
     if c:find("/") or c:find("\\") then
-      -- Full path candidate - use file existence check (no console window)
-      local f = io.open(c, "r")
-      if f then
-        f:close()
-        return c
+      -- Full path candidate - check for .exe extension on Windows
+      local paths_to_check = {c}
+      if IS_WINDOWS and not c:match("\.exe$") then
+        table.insert(paths_to_check, c .. ".exe")
+      end
+      
+      for _, path in ipairs(paths_to_check) do
+        local f = io.open(path, "r")
+        if f then
+          f:close()
+          return path
+        end
       end
     else
       -- Command name in PATH
       if IS_WINDOWS then
-        -- On Windows, try to run where.exe silently
-        -- Note: This will still briefly show a console window (Lua limitation)
-        -- But using hidden PowerShell reduces visibility
-        local handle = popen_silent("where " .. c .. " 2>NUL", "r")
+        -- On Windows, use where.exe to find command
+        local handle = popen_silent("where " .. c, "r")
         if handle then
-          local result = handle:read("*a")
+          local result = handle:read("*l")  -- Read first line only
           handle:close()
-          if result and result ~= "" and not result:match("Could not find") then
-            -- Command exists in PATH
+          if result and result ~= "" and not result:match("Could not find") and not result:match("INFO:") then
+            -- Command exists in PATH, return the command name (not full path)
             return c
           end
         end
@@ -426,31 +431,53 @@ local function detect_converters()
     return CACHED_CONVERTERS
   end
   
+  -- Get Windows program files paths
+  local programfiles = os.getenv("ProgramFiles") or "C:\\Program Files"
+  local programfiles_x86 = os.getenv("ProgramFiles(x86)") or "C:\\Program Files (x86)"
+  
   local rsvg_candidates = {
     "rsvg-convert",
-    "/opt/homebrew/bin/rsvg-convert", "/usr/local/bin/rsvg-convert", "/usr/bin/rsvg-convert"
+    "/opt/homebrew/bin/rsvg-convert", "/usr/local/bin/rsvg-convert", "/usr/bin/rsvg-convert",
+    -- Windows paths (Chocolatey typically installs to these locations)
+    programfiles .. "\\rsvg-convert\\rsvg-convert.exe",
+    "C:\\ProgramData\\chocolatey\\bin\\rsvg-convert.exe"
   }
   local inkscape_candidates = {
     "inkscape",
     "/Applications/Inkscape.app/Contents/MacOS/inkscape",
-    "/opt/homebrew/bin/inkscape", "/usr/local/bin/inkscape", "/usr/bin/inkscape"
+    "/opt/homebrew/bin/inkscape", "/usr/local/bin/inkscape", "/usr/bin/inkscape",
+    -- Windows paths
+    programfiles .. "\\Inkscape\\bin\\inkscape.exe",
+    programfiles_x86 .. "\\Inkscape\\bin\\inkscape.exe"
   }
   local magick_candidates = {
     "magick", "convert",
     "/opt/homebrew/bin/magick", "/usr/local/bin/magick", "/usr/bin/magick",
-    "/opt/homebrew/bin/convert", "/usr/local/bin/convert", "/usr/bin/convert"
+    "/opt/homebrew/bin/convert", "/usr/local/bin/convert", "/usr/bin/convert",
+    -- Windows paths
+    programfiles .. "\\ImageMagick\\magick.exe",
+    programfiles .. "\\ImageMagick\\convert.exe",
+    "C:\\ProgramData\\chocolatey\\bin\\magick.exe",
+    "C:\\ProgramData\\chocolatey\\bin\\convert.exe"
   }
   local pdfunite_candidates = {
     "pdfunite",
     "/opt/homebrew/bin/pdfunite",
     "/usr/local/bin/pdfunite",
-    "/usr/bin/pdfunite"
+    "/usr/bin/pdfunite",
+    -- Windows paths (poppler)
+    programfiles .. "\\poppler\\Library\\bin\\pdfunite.exe",
+    "C:\\ProgramData\\chocolatey\\bin\\pdfunite.exe"
   }
   local pdftk_candidates = {
     "pdftk",
     "/opt/homebrew/bin/pdftk",
     "/usr/local/bin/pdftk",
-    "/usr/bin/pdftk"
+    "/usr/bin/pdftk",
+    -- Windows paths
+    programfiles .. "\\PDFtk\\bin\\pdftk.exe",
+    programfiles_x86 .. "\\PDFtk Server\\bin\\pdftk.exe",
+    "C:\\ProgramData\\chocolatey\\bin\\pdftk.exe"
   }
 
   local rsvg   = find_cmd(rsvg_candidates)
