@@ -88,171 +88,104 @@ Test-Path "C:\Program Files\Wireshark\Wireshark.exe"
 Get-Service npcap
 ```
 
-## Optional Dependencies (PDF Export)
+## Recommended Tools (PDF Export)
 
-For full PDF export functionality, at least one converter and one combiner are required.
+For full PDF export functionality, the following combination works well:
 
-### PDF Converters (Choose One)
-
-#### Option 1: librsvg (Recommended)
+### 1. console-rsvg-convert (Recommended)
 
 **Purpose**: Converts SVG charts to PNG/PDF  
-**Performance**: Fastest
+**Performance**: Fastest and most reliable
 
-**Installation via Chocolatey**:
-```powershell
-# Install Chocolatey first if not installed
-# See: https://chocolatey.org/install
+**Installation**:
 
-# Install rsvg-convert
-choco install rsvg-convert
-```
-
-**Manual Installation**:
-1. Download from [GitHub Release](https://github.com/miyako/console-rsvg-convert/releases)
-2. Extract to a folder (e.g., `C:\Tools\rsvg\`)
-3. Add to PATH:
-   ```powershell
-   $env:Path += ";C:\Tools\rsvg"
-   # Make permanent via System Properties → Environment Variables
-   ```
+1. Download from [GitHub Releases](https://github.com/miyako/console-rsvg-convert/releases)
+2. Download the single executable file (e.g., `console-rsvg-convert.exe`)
+3. Copy the executable to a directory that is in your system PATH:
+   - **Option A**: Copy to `C:\Windows\` (system directory, already in PATH)
+   - **Option B**: Create a custom directory (e.g., `C:\Tools\`) and add it to PATH:
+     ```powershell
+     # Create directory
+     New-Item -ItemType Directory -Force -Path "C:\Tools"
+     
+     # Add to PATH (requires restart)
+     [Environment]::SetEnvironmentVariable(
+         "Path",
+         [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Tools",
+         "User"
+     )
+     ```
+4. Copy `console-rsvg-convert.exe` to your chosen directory
 
 **Verification**:
 ```powershell
 rsvg-convert --version
 ```
 
-#### Option 2: Inkscape
+**Note**: The installer script will create a `C:\Tools\` directory if it doesn't exist and can help set up the PATH.
 
-**Purpose**: Alternative SVG converter  
-**Performance**: Slower but feature-rich
+### 2. PDFtk (Recommended)
 
-**Installation via Chocolatey**:
-```powershell
-choco install inkscape
-```
+**Purpose**: Combines multiple PDF pages into a single document
 
-**Manual Installation**:
-1. Download from [inkscape.org](https://inkscape.org/release/)
-2. Run installer
-3. Accept defaults (adds to PATH automatically)
+**Installation**:
 
-**Typical Location**: `C:\Program Files\Inkscape\bin\inkscape.exe`
-
-**Verification**:
-```powershell
-inkscape --version
-```
-
-#### Option 3: ImageMagick
-
-**Purpose**: Image manipulation toolkit  
-**Performance**: Moderate
-
-**Installation via Chocolatey**:
-```powershell
-choco install imagemagick
-```
-
-**Manual Installation**:
-1. Download from [imagemagick.org](https://imagemagick.org/script/download.php#windows)
-2. Run installer
-3. Check "Add to system PATH" during installation
-
-**Verification**:
-```powershell
-magick --version
-# Or legacy command
-convert --version
-```
-
-### PDF Combiners (Choose One)
-
-#### Option 1: pdfunite (Recommended)
-
-**Purpose**: Combines multiple PDF pages  
-**Part of**: Poppler utilities
-
-**Installation via Chocolatey**:
-```powershell
-choco install poppler
-```
-
-**Manual Installation**:
-1. Download from [GitHub Release](https://github.com/oschwartz10612/poppler-windows/releases)
-2. Extract to a folder (e.g., `C:\Tools\poppler\`)
-3. Add `Library\bin` subfolder to PATH:
-   ```powershell
-   $env:Path += ";C:\Tools\poppler\Library\bin"
-   ```
-
-**Verification**:
-```powershell
-pdfunite --version
-```
-
-#### Option 2: pdftk
-
-**Purpose**: PDF toolkit for manipulation
-
-**Installation via Chocolatey**:
-```powershell
-choco install pdftk
-```
-
-**Manual Installation**:
-1. Download from [pdflabs.com](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/)
-2. Run installer
-3. Add to PATH if not automatic
+1. Download from [PDF Labs](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/)
+2. Choose **PDFtk Free** (free version) or **PDFtk Pro** (paid, $3.99)
+3. Run the installer
+4. The installer will automatically add PDFtk to your PATH
 
 **Verification**:
 ```powershell
 pdftk --version
 ```
 
-## Chocolatey Package Manager
+**Note**: PDFtk Free includes both the GUI and command-line tool (PDFtk Server).
 
-**Purpose**: Simplifies installation of PDF dependencies (highly recommended)
+## Alternative Tools
 
-**Installation**:
+If you prefer different tools, the following alternatives are also supported:
 
-1. Open PowerShell as Administrator
-2. Run:
-   ```powershell
-   Set-ExecutionPolicy Bypass -Scope Process -Force
-   [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-   iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-   ```
-3. Restart PowerShell
+### Alternative SVG Converters
 
-**Verification**:
-```powershell
-choco --version
-```
+- **Inkscape**: [inkscape.org](https://inkscape.org/release/) - Feature-rich but slower
+- **ImageMagick**: [imagemagick.org](https://imagemagick.org/script/download.php#windows) - Moderate performance
 
-**Website**: [chocolatey.org](https://chocolatey.org/install)
+### Alternative PDF Combiners
 
-## Quick Install Commands
+- **pdfunite** (Poppler): [GitHub Releases](https://github.com/oschwartz10612/poppler-windows/releases) - Part of Poppler utilities
 
-### Using Chocolatey (Recommended)
+## Quick Installation Guide
+
+### Step 1: Install Wireshark (Required)
 
 ```powershell
-# Install Wireshark
-choco install wireshark
-
-# Install PDF dependencies
-choco install rsvg-convert poppler
-
-# Or install everything at once
-choco install wireshark rsvg-convert poppler
+# Download and install from:
+# https://www.wireshark.org/download.html
 ```
 
-### Manual Installation
+### Step 2: Install Recommended Tools (Optional, for PDF Export)
 
-1. Install [Wireshark](https://www.wireshark.org/download.html)
-2. Install [rsvg-convert](https://github.com/miyako/console-rsvg-convert/releases)
-3. Install [Poppler](https://github.com/oschwartz10612/poppler-windows/releases)
-4. Add tools to PATH via System Properties → Environment Variables
+**console-rsvg-convert**:
+1. Download from: https://github.com/miyako/console-rsvg-convert/releases
+2. Copy the single `.exe` file to `C:\Windows\` or a directory in your PATH
+
+**PDFtk**:
+1. Download from: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/
+2. Run the installer (adds to PATH automatically)
+
+### Step 3: Install PacketReporter Plugin
+
+```powershell
+cd installers\windows
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer will:
+- Create the plugin directory
+- Copy the plugin file
+- Create configuration directory
+- Copy default logo and description files
 
 ## Plugin Directory
 
@@ -262,9 +195,15 @@ choco install wireshark rsvg-convert poppler
 
 **Note**: The installer will automatically create this directory.
 
-**Alternative Locations** (not used by default):
-- `%PROGRAMFILES%\Wireshark\plugins\` (system-wide, requires admin)
-- `%WIRESHARK_PLUGIN_DIR%` (if environment variable is set)
+## Configuration Directory
+
+**Location**: `%USERPROFILE%\.packet_reporter\`
+
+**Full Path Example**: `C:\Users\YourUsername\.packet_reporter\`
+
+**Files**:
+- `Logo.png` - Your company/organization logo (copied by installer)
+- `packet_reporter.txt` - Report description (3 lines max, copied by installer)
 
 ## Permission Requirements
 
@@ -305,59 +244,27 @@ try {
     Write-Host "⚠ Unable to check Npcap" -ForegroundColor Yellow
 }
 
-# 3. Check Chocolatey
+# 3. Check console-rsvg-convert
 Write-Host ""
-Write-Host "Checking Chocolatey..." -ForegroundColor Yellow
-if (Get-Command choco -ErrorAction SilentlyContinue) {
-    Write-Host "✓ Chocolatey installed" -ForegroundColor Green
-} else {
-    Write-Host "⚠ Chocolatey not found (optional)" -ForegroundColor Yellow
-}
-
-# 4. Check SVG converters
-Write-Host ""
-Write-Host "Checking SVG Converters..." -ForegroundColor Yellow
-$hasConverter = $false
+Write-Host "Checking console-rsvg-convert..." -ForegroundColor Yellow
 if (Get-Command rsvg-convert -ErrorAction SilentlyContinue) {
     Write-Host "✓ rsvg-convert found" -ForegroundColor Green
-    $hasConverter = $true
 } else {
     Write-Host "✗ rsvg-convert not found" -ForegroundColor Red
+    Write-Host "  Download from: https://github.com/miyako/console-rsvg-convert/releases" -ForegroundColor Yellow
 }
 
-if (Test-Path "$env:ProgramFiles\Inkscape\bin\inkscape.exe") {
-    Write-Host "✓ Inkscape found" -ForegroundColor Green
-    $hasConverter = $true
-} else {
-    Write-Host "✗ Inkscape not found" -ForegroundColor Red
-}
-
-if (Get-Command magick -ErrorAction SilentlyContinue) {
-    Write-Host "✓ ImageMagick found" -ForegroundColor Green
-    $hasConverter = $true
-} else {
-    Write-Host "✗ ImageMagick not found" -ForegroundColor Red
-}
-
-# 5. Check PDF combiners
+# 4. Check PDFtk
 Write-Host ""
-Write-Host "Checking PDF Combiners..." -ForegroundColor Yellow
-$hasCombiner = $false
-if (Get-Command pdfunite -ErrorAction SilentlyContinue) {
-    Write-Host "✓ pdfunite found" -ForegroundColor Green
-    $hasCombiner = $true
-} else {
-    Write-Host "✗ pdfunite not found" -ForegroundColor Red
-}
-
+Write-Host "Checking PDFtk..." -ForegroundColor Yellow
 if (Get-Command pdftk -ErrorAction SilentlyContinue) {
     Write-Host "✓ pdftk found" -ForegroundColor Green
-    $hasCombiner = $true
 } else {
     Write-Host "✗ pdftk not found" -ForegroundColor Red
+    Write-Host "  Download from: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/" -ForegroundColor Yellow
 }
 
-# 6. Check plugin directory
+# 5. Check plugin directory
 Write-Host ""
 Write-Host "Checking Plugin Directory..." -ForegroundColor Yellow
 if (Test-Path "$env:APPDATA\Wireshark\plugins") {
@@ -369,7 +276,7 @@ if (Test-Path "$env:APPDATA\Wireshark\plugins") {
 Write-Host ""
 ```
 
-Save as `check-prereqs.ps1` and run with:
+Or use the automated check script:
 ```powershell
 powershell -ExecutionPolicy Bypass -File check-prereqs.ps1
 ```
@@ -383,8 +290,8 @@ powershell -ExecutionPolicy Bypass -File check-prereqs.ps1
 Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | 
   Where-Object { $_.DisplayName -like "*Wireshark*" }
 
-# Reinstall if needed
-choco install wireshark --force
+# Download and install from:
+# https://www.wireshark.org/download.html
 ```
 
 ### PowerShell Execution Policy
@@ -408,14 +315,14 @@ To add a directory to PATH permanently:
 1. Open System Properties (Win+Pause/Break)
 2. Advanced System Settings → Environment Variables
 3. Under "User variables", select PATH → Edit
-4. Add new entry (e.g., `C:\Tools\rsvg`)
+4. Add new entry (e.g., `C:\Tools`)
 5. Click OK and restart PowerShell
 
 **Or via PowerShell (requires restart)**:
 ```powershell
 [Environment]::SetEnvironmentVariable(
     "Path",
-    [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Tools\rsvg",
+    [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Tools",
     "User"
 )
 ```
@@ -435,14 +342,15 @@ Get-NetAdapter | Where-Object { $_.DriverDescription -like "*Npcap*" }
 
 ### PDF Export Not Working
 
-```powershell
-# Install dependencies via Chocolatey
-choco install rsvg-convert poppler
+**Install recommended tools**:
 
-# Or manually download and add to PATH
-# rsvg: https://github.com/miyako/console-rsvg-convert/releases
-# poppler: https://github.com/oschwartz10612/poppler-windows/releases
-```
+1. **console-rsvg-convert**:
+   - Download from: https://github.com/miyako/console-rsvg-convert/releases
+   - Copy the single `.exe` file to `C:\Windows\` or add to PATH
+
+2. **PDFtk**:
+   - Download from: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/
+   - Run the installer
 
 ### Permission Denied
 
@@ -458,10 +366,7 @@ icacls $pluginDir /grant "${env:USERNAME}:(OI)(CI)F" /T
 If you get DLL errors when running converters:
 
 1. Install [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-2. Or via Chocolatey:
-   ```powershell
-   choco install vcredist-all
-   ```
+2. Or download the static build of console-rsvg-convert from GitHub releases
 
 ## Windows-Specific Notes
 
@@ -471,7 +376,7 @@ If you get DLL errors when running converters:
 - Windows Defender may prompt - allow Wireshark
 
 ### PDF Export Behavior
-**Note**: During multi-page PDF export, you may briefly see command prompt windows flash on screen. This is normal behavior when external tools (rsvg-convert, pdfunite) are being called. The windows will close automatically when processing completes.
+**Note**: During multi-page PDF export, you may briefly see command prompt windows flash on screen. This is normal behavior when external tools (rsvg-convert, pdftk) are being called. The windows will close automatically when processing completes.
 
 ### Windows Server
 - Supported on Server 2016+
@@ -484,23 +389,12 @@ Some antivirus programs may flag Wireshark or packet capture:
 - Allow network capture prompts
 - Whitelist plugin directory
 
-## Additional Resources
-
-- [Wireshark Documentation](https://www.wireshark.org/docs/)
-- [Wireshark Wiki - Windows](https://wiki.wireshark.org/CaptureSetup/Platforms/Windows)
-- [Npcap Documentation](https://npcap.com/guide/)
-- [Chocolatey Packages](https://community.chocolatey.org/packages)
-
 ## Minimum Installation
 
 If you only want to run the plugin without PDF export:
 
-```powershell
-# Via Chocolatey
-choco install wireshark
-
-# Or manual download from wireshark.org
-```
+1. Install Wireshark from [wireshark.org](https://www.wireshark.org/download.html)
+2. Run the installer script: `powershell -ExecutionPolicy Bypass -File install.ps1`
 
 **Note**: Reports will still generate HTML output viewable in browser, but PDF export will be unavailable.
 
@@ -508,14 +402,12 @@ choco install wireshark
 
 For full functionality including PDF export:
 
-```powershell
-# Install Chocolatey first (see Chocolatey section above)
-
-# Then install all dependencies
-choco install wireshark rsvg-convert poppler
-
-# Restart PowerShell after installation
-```
+1. **Install Wireshark** from [wireshark.org](https://www.wireshark.org/download.html)
+2. **Install console-rsvg-convert**:
+   - Download from: https://github.com/miyako/console-rsvg-convert/releases
+   - Copy the single `.exe` file to `C:\Windows\` or a directory in PATH
+3. **Install PDFtk** from [pdflabs.com](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/)
+4. **Run the installer**: `powershell -ExecutionPolicy Bypass -File install.ps1`
 
 This provides optimal performance and all features.
 
@@ -527,10 +419,17 @@ To uninstall the plugin:
 # Remove plugin file
 Remove-Item "$env:APPDATA\Wireshark\plugins\packet_reporter.lua"
 
-# Optionally remove dependencies
-choco uninstall rsvg-convert poppler
+# Optionally remove configuration directory
+Remove-Item "$env:USERPROFILE\.packet_reporter" -Recurse -Force
 
 # To uninstall Wireshark
-choco uninstall wireshark
-# Or use Windows Settings → Apps → Uninstall
+# Use Windows Settings → Apps → Uninstall
 ```
+
+## Additional Resources
+
+- [Wireshark Documentation](https://www.wireshark.org/docs/)
+- [Wireshark Wiki - Windows](https://wiki.wireshark.org/CaptureSetup/Platforms/Windows)
+- [Npcap Documentation](https://npcap.com/guide/)
+- [console-rsvg-convert Releases](https://github.com/miyako/console-rsvg-convert/releases)
+- [PDFtk - PDF Toolkit](https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/)

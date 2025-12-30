@@ -1642,21 +1642,49 @@ local function collect_tls_stats()
     
     tls_packet_count = tls_packet_count + 1
     
-    -- TLS version from record or handshake
-    local version = f2n(f_tls_record_version) or f2n(f_tls_handshake_version)
-    if version then
-      local version_str = ""
-      if version == 0x0301 then version_str = "TLS 1.0"
-      elseif version == 0x0302 then version_str = "TLS 1.1"
-      elseif version == 0x0303 then version_str = "TLS 1.2"
-      elseif version == 0x0304 then version_str = "TLS 1.3"
-      elseif version == 0x0300 then version_str = "SSL 3.0"
-      else version_str = nil end  -- Don't record unknown versions
-      
-      -- Only record known TLS/SSL versions
-      if version_str then
-        stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
+    -- TLS version detection: Check protocol name first (accurate for TLS 1.3),
+    -- then fall back to version field (TLS 1.3 uses 0x0303 in record layer for compatibility)
+    local version_str = nil
+    local protocols_lower = protocols:lower()
+    
+    -- Check protocol string for explicit TLS version (most accurate)
+    if protocols_lower:find("tlsv1%.3") or protocols_lower:find("tls 1%.3") then
+      version_str = "TLS 1.3"
+    elseif protocols_lower:find("tlsv1%.2") or protocols_lower:find("tls 1%.2") then
+      version_str = "TLS 1.2"
+    elseif protocols_lower:find("tlsv1%.1") or protocols_lower:find("tls 1%.1") then
+      version_str = "TLS 1.1"
+    elseif protocols_lower:find("tlsv1%.0") or protocols_lower:find("tls 1%.0") then
+      version_str = "TLS 1.0"
+    elseif protocols_lower:find("ssl 3%.0") or protocols_lower:find("sslv3") then
+      version_str = "SSL 3.0"
+    else
+      -- Fall back to version field (but be careful: TLS 1.3 uses 0x0303 in record layer)
+      local version = f2n(f_tls_handshake_version)  -- Prefer handshake version (more accurate)
+      if not version then
+        version = f2n(f_tls_record_version)  -- Fall back to record version
       end
+      
+      if version then
+        if version == 0x0304 then
+          version_str = "TLS 1.3"  -- Handshake version 0x0304 indicates TLS 1.3
+        elseif version == 0x0301 then
+          version_str = "TLS 1.0"
+        elseif version == 0x0302 then
+          version_str = "TLS 1.1"
+        elseif version == 0x0303 then
+          -- 0x0303 could be TLS 1.2 or TLS 1.3 (record layer compatibility)
+          -- If we didn't detect TLS 1.3 from protocol string, assume TLS 1.2
+          version_str = "TLS 1.2"
+        elseif version == 0x0300 then
+          version_str = "SSL 3.0"
+        end
+      end
+    end
+    
+    -- Only record known TLS/SSL versions
+    if version_str then
+      stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
     end
     
     -- SNI (Server Name Indication)
