@@ -1621,7 +1621,8 @@ local function collect_tls_stats()
     cipher_suites = {},
     cert_common_names = {},
     quic_count = 0,
-    total_connections = 0
+    total_connections = 0,
+    debug_protocol_samples = {}  -- Store sample protocol strings for debugging
   }
   
   -- Try multiple protocol names: frame (to catch all), ssl, tls
@@ -1685,6 +1686,23 @@ local function collect_tls_stats()
     end
     
     tls_packet_count = tls_packet_count + 1
+    
+    -- Debug: Store sample protocol strings (first 10 TLS packets)
+    if tls_packet_count <= 10 then
+      local debug_str = "proto: " .. protocols_lower
+      if pinfo_protocol and pinfo_protocol ~= "" then
+        debug_str = debug_str .. " | pinfo: " .. pinfo_protocol
+      end
+      local handshake_v = f2n(f_tls_handshake_version)
+      local record_v = f2n(f_tls_record_version)
+      if handshake_v then
+        debug_str = debug_str .. string.format(" | handshake: 0x%04x", handshake_v)
+      end
+      if record_v then
+        debug_str = debug_str .. string.format(" | record: 0x%04x", record_v)
+      end
+      table.insert(stats.debug_protocol_samples, debug_str)
+    end
     
     -- TLS version detection: Use multiple methods for accuracy
     local version_str = nil
@@ -2083,9 +2101,18 @@ local function generate_detailed_report_internal()
   end
   tw:append(string.format("TLS versions found: %d, SNI names: %d%s\n", tls_version_count, tls_sni_count, quic_info))
   
+  -- Debug: Show sample protocol strings from first TLS packets
+  if tls_stats.debug_protocol_samples and #tls_stats.debug_protocol_samples > 0 then
+    tw:append("\nDEBUG - Sample protocol strings from first 10 TLS packets:\n")
+    for i, proto_str in ipairs(tls_stats.debug_protocol_samples) do
+      tw:append(string.format("  [%d] %s\n", i, proto_str))
+    end
+    tw:append("(This helps identify the protocol string format)\n\n")
+  end
+  
   -- Debug: Show protocol strings we couldn't identify (helps diagnose detection issues)
   if tls_stats.debug_unknown_protocols and #tls_stats.debug_unknown_protocols > 0 then
-    tw:append("\nDEBUG - Sample protocol strings from TLS packets we couldn't identify:\n")
+    tw:append("DEBUG - Protocol strings from TLS packets we couldn't identify:\n")
     for i, proto_str in ipairs(tls_stats.debug_unknown_protocols) do
       tw:append(string.format("  [%d] %s\n", i, proto_str))
     end
