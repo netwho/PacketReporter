@@ -19,10 +19,10 @@ function Write-ColorOutput($ForegroundColor) {
     $host.UI.RawUI.ForegroundColor = $fc
 }
 
-function Write-Success { Write-ColorOutput Green "✓ $args" }
-function Write-Warning { Write-ColorOutput Yellow "⚠ $args" }
-function Write-Error { Write-ColorOutput Red "✗ $args" }
-function Write-Info { Write-ColorOutput Cyan "→ $args" }
+function Write-Success { Write-ColorOutput Green "[OK] $args" }
+function Write-Warning { Write-ColorOutput Yellow "[!] $args" }
+function Write-Error { Write-ColorOutput Red "[X] $args" }
+function Write-Info { Write-ColorOutput Cyan "-> $args" }
 function Write-Header { Write-ColorOutput Blue $args }
 
 Write-Header "============================================"
@@ -419,7 +419,7 @@ if ($allRequired) {
     Write-Output "  1. Install recommended tools (if desired for PDF export)"
     Write-Output "  2. Run install.ps1 to install PacketReporter plugin"
     Write-Output "  3. Restart Wireshark"
-    Write-Output "  4. Access plugin via: Tools → PacketReporter"
+    Write-Output "  4. Access plugin via: Tools -> PacketReporter"
 } else {
     Write-Output "  1. Install missing required dependencies (Wireshark)"
     Write-Output "  2. Run this script again to verify installation"
