@@ -407,10 +407,10 @@ if ($hasRecommendedConverter -and $hasRecommendedCombiner) {
 } else {
     Write-Warning "PDF export tools are missing"
     if (-not $hasAnyConverter) {
-        Write-Output "  • Missing SVG converter"
+        Write-Output "  - Missing SVG converter"
     }
     if (-not $hasAnyCombiner) {
-        Write-Output "  • Missing PDF combiner"
+        Write-Output "  - Missing PDF combiner"
     }
     Write-Output ""
     Write-Output "  Plugin will work without these, but PDF export will be unavailable"
@@ -429,18 +429,18 @@ if (-not $hasRecommendedConverter -or -not $hasRecommendedCombiner) {
     
     if (-not $hasRecommendedConverter) {
         Write-ColorOutput Cyan "1. console-rsvg-convert (SVG Converter):"
-        Write-Output "   • Download: https://github.com/miyako/console-rsvg-convert/releases"
-        Write-Output "   • Copy the single .exe file to a directory in PATH"
-        Write-Output "   • Option A: Copy to C:\Windows\ (already in PATH)"
-        Write-Output "   • Option B: Copy to C:\Tools\ and add to PATH"
+        Write-Output "   - Download: https://github.com/miyako/console-rsvg-convert/releases"
+        Write-Output "   - Copy the single .exe file to a directory in PATH"
+        Write-Output "   - Option A: Copy to C:\Windows\ (already in PATH)"
+        Write-Output "   - Option B: Copy to C:\Tools\ and add to PATH"
         Write-Output ""
     }
     
     if (-not $hasRecommendedCombiner) {
         Write-ColorOutput Cyan "2. PDFtk (PDF Combiner):"
-        Write-Output "   • Download: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
-        Write-Output "   • Install PDFtk Free (includes command-line tool)"
-        Write-Output "   • Installer will add to PATH automatically"
+        Write-Output "   - Download: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
+        Write-Output "   - Install PDFtk Free (includes command-line tool)"
+        Write-Output "   - Installer will add to PATH automatically"
         Write-Output ""
     }
     
