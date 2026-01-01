@@ -19,7 +19,7 @@ A Wireshark plugin for generating network analysis reports with visualizations a
 
 ## ✨ Features
 
-- 📊 **Multiple Report Types** - Summary, Detailed Analysis with 12 comprehensive sections
+- 📊 **Multiple Report Types** - Summary, Detailed Analysis with 11 comprehensive sections
 - 📈 **Rich Visualizations** - Bar charts, pie charts, circular communication matrix, protocol hierarchy trees
 - 🌳 **Protocol Hierarchy** - Deep protocol stack visualization (up to 8 levels) showing TCP/UDP branches, SMB, HTTP content types, and more
 - 📄 **Multi-page PDF Export** - A4 and Legal paper sizes with intelligent page breaks and truncation indicators
@@ -119,22 +119,42 @@ The cover page is automatically generated when you export a detailed report. If 
 Quick overview with essential statistics and key charts (1-2 pages).
 
 ### Detailed Report  
-Comprehensive analysis with 12 major sections (3-8 pages):
+Comprehensive analysis with 11 major sections (3-8 pages):
 
-1. **PCAP File Summary** - File info, timestamps, capture statistics
+1. **Summary** - PCAP file information, timestamps, capture statistics
 2. **Top 10 IP Addresses** - Most active endpoints visualization
-3. **Protocol Distribution** - Traffic composition analysis  
-4. **IP Communication Matrix** - Circular visualization of host communications
+3. **Top Protocols and Applications** - Traffic composition analysis  
+4. **IP Communication Matrix (Top 10 Hosts)** - Circular visualization of host communications
 5. **Port Analysis** - TCP/UDP port statistics with charts
-6. **Protocol Hierarchy** - Complete protocol stack visualization showing L2-L7 protocols and application-layer content (SMB, HTTP content types, etc.)
-7. **DNS Analysis** - Resource record types, authoritative responses, domain tables
-8. **TLS/SSL Analysis** - Protocol versions (TLS 1.0-1.3, SSL 3.0, QUIC), SNI names, certificate analysis
+   - 5.1 Top 5 TCP Ports
+   - 5.2 Top 5 UDP Ports
+6. **DNS Analysis** - Resource record types, authoritative responses, domain tables
+   - 6.1 Top 10 DNS Queries
+   - 6.2 DNS Record Types Distribution
+   - 6.3 DNS Response Analysis
+7. **TLS/SSL Analysis** - Protocol versions (TLS 1.0-1.3, SSL 3.0, QUIC), SNI names, certificate analysis
+   - 7.1 TLS/SSL/QUIC Version Distribution
+   - 7.2 Top 10 TLS Server Names (SNI)
+   - 7.3 Top 10 Certificate Common Names
    - Accurate TLS 1.3 detection using `supported_versions` extension and cipher suites
    - Only counts handshake packets to avoid false positives from application data
-9. **HTTP Analysis** - User agents, hosts, status code distribution
-10. **MAC Layer Analysis** - Frame sizes, traffic types, vendor identification
-11. **IP Layer Analysis** - TTL distribution, fragmentation statistics
-12. **TCP Analysis** - Window sizes, segment distribution, RTT samples
+8. **HTTP Analysis** - User agents, hosts, status code distribution
+   - 8.1 Top 10 HTTP User-Agents
+   - 8.2 Top 10 HTTP Hosts
+   - 8.3 HTTP Status Codes
+9. **MAC Layer Analysis** - Frame sizes, traffic types, vendor identification
+   - 9.1 Traffic Type Distribution
+   - 9.2 Frame Size Distribution
+   - 9.3 Top 10 MAC Vendors
+10. **IP Layer Analysis** - TTL distribution, fragmentation statistics
+   - 10.1 TTL Distribution
+   - 10.2 IP Fragmentation
+   - 10.3 DSCP (Differentiated Services) Distribution
+   - 10.4 IP Protocol Distribution
+11. **TCP Analysis** - Window sizes, segment distribution, RTT samples
+   - 11.1 TCP Window Size Distribution
+   - 11.2 TCP Segment Size Distribution
+   - 11.3 TCP Round-Trip Time Distribution
 
 ## 📚 Documentation
 
@@ -393,21 +413,38 @@ Choose the paper size when exporting to PDF using the corresponding button.
 
 ### Detailed Report Sections
 
-Structured similarly to Tranalyzer's output:
-
-1. **Summary** - Overview statistics
-2. **Top 10 IP Addresses** - Most active hosts
-3. **Top Protocols and Applications** - Traffic breakdown
-4. **Top 5 Ports**
-   - 4.1 Top 5 TCP Ports
-   - 4.2 Top 5 UDP Ports
-5. **DNS Analysis**
-   - 5.1 Top 10 DNS Queries
-   - 5.2 Top DNS IPv4/6 Addresses
-6. **HTTP Analysis**
-   - 6.1 Top 10 HTTP User-Agents
-   - 6.2 Top 10 HTTP Hosts
-   - 6.3 Top 5 HTTP Status Codes
+1. **Summary** - PCAP file information, timestamps, capture statistics
+2. **Top 10 IP Addresses** - Most active hosts with bar chart visualization
+3. **Top Protocols and Applications** - Traffic breakdown with pie chart
+4. **IP Communication Matrix (Top 10 Hosts)** - Circular visualization of host communications
+5. **Port Analysis** - TCP/UDP port statistics
+   - 5.1 Top 5 TCP Ports
+   - 5.2 Top 5 UDP Ports
+6. **DNS Analysis** - DNS query and response analysis
+   - 6.1 Top 10 DNS Queries
+   - 6.2 DNS Record Types Distribution
+   - 6.3 DNS Response Analysis
+7. **TLS/SSL Analysis** - Protocol versions, SNI, certificates
+   - 7.1 TLS/SSL/QUIC Version Distribution
+   - 7.2 Top 10 TLS Server Names (SNI)
+   - 7.3 Top 10 Certificate Common Names
+8. **HTTP Analysis** - HTTP traffic analysis
+   - 8.1 Top 10 HTTP User-Agents
+   - 8.2 Top 10 HTTP Hosts
+   - 8.3 HTTP Status Codes
+9. **MAC Layer Analysis** - Frame-level statistics
+   - 9.1 Traffic Type Distribution
+   - 9.2 Frame Size Distribution
+   - 9.3 Top 10 MAC Vendors
+10. **IP Layer Analysis** - IP-level statistics
+   - 10.1 TTL Distribution
+   - 10.2 IP Fragmentation
+   - 10.3 DSCP (Differentiated Services) Distribution
+   - 10.4 IP Protocol Distribution
+11. **TCP Analysis** - TCP-level statistics
+   - 11.1 TCP Window Size Distribution
+   - 11.2 TCP Segment Size Distribution
+   - 11.3 TCP Round-Trip Time Distribution
 
 ## Limitations
 
