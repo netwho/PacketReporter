@@ -17,7 +17,7 @@ if not gui_enabled() then return end
 
 -- Register plugin info with Wireshark
 set_plugin_info({
-    version = "0.2.3",
+    version = "0.2.4",
     author = "Walter Hofstetter",
     description = "Generate comprehensive network analysis reports with charts and PDF export",
     repository = "https://github.com/netwho/PacketReporter"
@@ -126,10 +126,24 @@ pcall(function() f_udp_dstport = F("udp.dstport") end)
 pcall(function() f_udp_srcport = F("udp.srcport") end)
 
 -- TLS supported_versions extension (for accurate TLS 1.3 detection)
-local f_tls_supported_versions
-pcall(function() f_tls_supported_versions = F("tls.handshake.extensions_supported_versions") end)
-if not f_tls_supported_versions then
-  pcall(function() f_tls_supported_versions = F("ssl.handshake.extensions_supported_versions") end)
+-- The field can appear multiple times (one per supported version), so we need to check all values
+-- Try multiple possible field names
+local f_tls_supported_version
+pcall(function() f_tls_supported_version = F("tls.handshake.extensions.supported_version") end)
+if not f_tls_supported_version then
+  pcall(function() f_tls_supported_version = F("tls.handshake.extensions_supported_version") end)
+end
+if not f_tls_supported_version then
+  pcall(function() f_tls_supported_version = F("tls.handshake.extensions_supported_versions") end)
+end
+if not f_tls_supported_version then
+  pcall(function() f_tls_supported_version = F("ssl.handshake.extensions.supported_version") end)
+end
+if not f_tls_supported_version then
+  pcall(function() f_tls_supported_version = F("ssl.handshake.extensions_supported_version") end)
+end
+if not f_tls_supported_version then
+  pcall(function() f_tls_supported_version = F("ssl.handshake.extensions_supported_versions") end)
 end
 
 ------------------------------------------------------------
@@ -538,9 +552,9 @@ local function check_dependencies_on_startup()
     table.insert(warnings, "Or install pdftk: brew install pdftk-java")
   end
   
-  -- Display warning if dependencies are missing
+  -- Only show window if dependencies are missing
   if #missing > 0 then
-    local tw = TextWindow.new("PacketReporter - Dependency Check")
+    local tw = TextWindow.new("PacketReporter - Missing Dependencies")
     tw:append("===================================================\n")
     tw:append("  PacketReporter - Missing Dependencies\n")
     tw:append("===================================================\n\n")
@@ -564,6 +578,7 @@ local function check_dependencies_on_startup()
     tw:append("Close this window to continue using Wireshark.\n")
     tw:append("===================================================\n")
   end
+  -- If all dependencies are met, no message is shown
 end
 
 ------------------------------------------------------------
@@ -944,14 +959,23 @@ local function export_multipage_pdf(svg_content, total_height, tw, tools, paper_
   tw:append("Attempting multi-page PDF export...\n")
   tw:append("Reports directory: " .. reports_dir .. "\n")
   
-  -- Debug: Show detected converters
-  tw:append("\nDetected converters:\n")
-  tw:append("  rsvg-convert: " .. (tools.rsvg or "NOT FOUND") .. "\n")
-  tw:append("  inkscape: " .. (tools.inkscape or "NOT FOUND") .. "\n")
-  tw:append("  imagemagick: " .. (tools.magick or "NOT FOUND") .. "\n")
-  tw:append("  pdfunite: " .. (tools.pdfunite or "NOT FOUND") .. "\n")
-  tw:append("  pdftk: " .. (tools.pdftk or "NOT FOUND") .. "\n")
-  tw:append("\n")
+  -- Check dependencies - only report if all met, otherwise show what's missing
+  local has_converter = tools.rsvg or tools.inkscape or tools.magick
+  local has_combiner = tools.pdfunite or tools.pdftk
+  if not has_converter or not has_combiner then
+    tw:append("\n✗ Missing dependencies:\n")
+    if not has_converter then
+      tw:append("  - SVG converter: rsvg-convert, inkscape, or imagemagick\n")
+      tw:append("    Install: brew install librsvg (recommended)\n")
+    end
+    if not has_combiner then
+      tw:append("  - PDF combiner: pdfunite or pdftk\n")
+      tw:append("    Install: brew install poppler (pdfunite) or pdftk-java\n")
+    end
+    tw:append("\nPDF export cannot proceed without these dependencies.\n")
+    return nil
+  end
+  tw:append("\n✓ All dependencies met - proceeding with PDF export\n")
   
   local paper = paper_size == "Legal" and PAPER_SIZES.LEGAL or PAPER_SIZES.A4
   local num_pages = math.ceil(total_height / paper.height)
@@ -1621,8 +1645,7 @@ local function collect_tls_stats()
     cipher_suites = {},
     cert_common_names = {},
     quic_count = 0,
-    total_connections = 0,
-    debug_protocol_samples = {}  -- Store sample protocol strings for debugging
+    total_connections = 0
   }
   
   -- Try multiple protocol names: frame (to catch all), ssl, tls
@@ -1654,8 +1677,17 @@ local function collect_tls_stats()
     
     -- Also try to get protocol from pinfo (more reliable for TLS version)
     local pinfo_protocol = ""
+    local pinfo_protocol_orig = ""
     if pinfo and pinfo.cols and pinfo.cols.protocol then
-      pinfo_protocol = tostring(pinfo.cols.protocol):lower()
+      pinfo_protocol_orig = tostring(pinfo.cols.protocol)
+      pinfo_protocol = pinfo_protocol_orig:lower()
+    end
+    
+    -- Also try to get the actual protocol name from the dissection tree
+    -- This is what Wireshark displays in the protocol column
+    local protocol_name = ""
+    if pinfo and pinfo.cols and pinfo.cols.protocol then
+      protocol_name = tostring(pinfo.cols.protocol)
     end
     
     -- Check for QUIC first (before TLS check)
@@ -1687,47 +1719,120 @@ local function collect_tls_stats()
     
     tls_packet_count = tls_packet_count + 1
     
-    -- Debug: Store sample protocol strings (first 10 TLS packets)
-    if tls_packet_count <= 10 then
-      local debug_str = "proto: " .. protocols_lower
-      if pinfo_protocol and pinfo_protocol ~= "" then
-        debug_str = debug_str .. " | pinfo: " .. pinfo_protocol
-      end
-      local handshake_v = f2n(f_tls_handshake_version)
-      local record_v = f2n(f_tls_record_version)
-      if handshake_v then
-        debug_str = debug_str .. string.format(" | handshake: 0x%04x", handshake_v)
-      end
-      if record_v then
-        debug_str = debug_str .. string.format(" | record: 0x%04x", record_v)
-      end
-      table.insert(stats.debug_protocol_samples, debug_str)
-    end
-    
     -- TLS version detection: Use multiple methods for accuracy
     local version_str = nil
     
-    -- Method 1: Check protocol string and pinfo protocol FIRST (most reliable for TLS 1.3)
+    -- Method 0: Check supported_versions extension FIRST (MOST ACCURATE for TLS 1.3)
+    -- This extension contains the actual negotiated version, not the legacy compatibility version
+    -- Check this BEFORE anything else to avoid false matches
+    if f_tls_supported_version then
+      local supported_versions_field = f_tls_supported_version()
+      if supported_versions_field then
+        local max_version = 0
+        
+        -- Handle field extraction - Wireshark returns table for multiple occurrences
+        if type(supported_versions_field) == "table" then
+          -- Multiple occurrences - iterate through all
+          for _, sv_field in ipairs(supported_versions_field) do
+            local num_val = f2n(sv_field)
+            if num_val and num_val > max_version then
+              max_version = num_val
+            end
+          end
+        else
+          -- Single occurrence - get value directly
+          local num_val = f2n(supported_versions_field)
+          if num_val then
+            max_version = num_val
+          end
+        end
+        
+        -- Map version numbers to version strings (check highest first - TLS 1.3 = 0x0304)
+        if max_version == 0x0304 then
+          version_str = "TLS 1.3"
+        elseif max_version == 0x0303 then
+          version_str = "TLS 1.2"
+        elseif max_version == 0x0302 then
+          version_str = "TLS 1.1"
+        elseif max_version == 0x0301 then
+          version_str = "TLS 1.0"
+        elseif max_version == 0x0300 then
+          version_str = "SSL 3.0"
+        end
+      end
+    end
+    
+    -- Method 0b: Also check cipher suite IMMEDIATELY (reliable for TLS 1.3 in Server Hello)
+    -- TLS 1.3 cipher suites are 0x1301-0x1305, and this is present in Server Hello
+    -- Check this even if supported_versions didn't work, as it's very reliable
+    if not version_str then
+      local cipher = f2n(f_tls_handshake_ciphersuite)
+      if cipher then
+        -- TLS 1.3 cipher suites are in the range 0x1301-0x1305
+        if cipher >= 0x1301 and cipher <= 0x1305 then
+          version_str = "TLS 1.3"
+        end
+      end
+    end
+    
+    
+    -- Method 2: Check protocol string and pinfo protocol (less reliable, can be ambiguous)
     -- Wireshark shows "TLSv1.3 Record Layer" so check both frame.protocols and pinfo.cols.protocol
     -- Protocol string is colon-separated like "eth:ip:tcp:tlsv1.3" or "eth:ip:tcp:tls"
     -- IMPORTANT: Check TLS 1.3 patterns BEFORE TLS 1.2 to avoid false matches
     
-    -- Combine protocol string and pinfo protocol for checking
+    -- Combine protocol string and pinfo protocol for checking (use original case too)
     local all_protocols = protocols_lower
-    if pinfo_protocol and pinfo_protocol ~= "" then
-      all_protocols = all_protocols .. " " .. pinfo_protocol
+    local all_protocols_orig = tostring(protocols or "")
+    if protocol_name and protocol_name ~= "" then
+      all_protocols = all_protocols .. " " .. protocol_name:lower()
+      all_protocols_orig = all_protocols_orig .. " " .. protocol_name
     end
     
-    -- First check the full protocol string and pinfo protocol
+    -- First check the protocol name column directly (most reliable - this is what Wireshark displays)
     local found_version = false
-    if all_protocols:find("tlsv1%.3") or all_protocols:find("tlsv1:3") or
-       all_protocols:find("tls%.1%.3") or all_protocols:find("tls 1%.3") or
-       all_protocols:find("tlsv1_3") or all_protocols:find("tlsv13") or
-       all_protocols:find("tls1%.3") or all_protocols:find("tls 1:3") or
-       all_protocols:find("tls%-1%.3") or all_protocols:find("tlsv1%.3 record") or
-       all_protocols:find("tlsv1%.3 layer") then
-      version_str = "TLS 1.3"
-      found_version = true
+    
+    -- Check protocol name column first (this shows "TLSv1.3" in Wireshark)
+    if protocol_name and protocol_name ~= "" then
+      local proto_lower = protocol_name:lower()
+      if proto_lower:find("tlsv1%.3") or proto_lower:find("tlsv1:3") or
+         proto_lower:find("tlsv1_3") or proto_lower:find("tlsv13") or
+         protocol_name:find("TLSv1%.3") or protocol_name:find("TLSv1:3") or
+         protocol_name:find("TLSv13") or protocol_name:find("TLSv1_3") then
+        version_str = "TLS 1.3"
+        found_version = true
+      elseif proto_lower:find("tlsv1%.2") or proto_lower:find("tlsv1:2") or
+             proto_lower:find("tlsv1_2") or proto_lower:find("tlsv12") or
+             protocol_name:find("TLSv1%.2") or protocol_name:find("TLSv1:2") or
+             protocol_name:find("TLSv12") or protocol_name:find("TLSv1_2") then
+        version_str = "TLS 1.2"
+        found_version = true
+      elseif proto_lower:find("tlsv1%.1") or proto_lower:find("tlsv1:1") or
+             protocol_name:find("TLSv1%.1") or protocol_name:find("TLSv1:1") then
+        version_str = "TLS 1.1"
+        found_version = true
+      elseif proto_lower:find("tlsv1%.0") or proto_lower:find("tlsv1:0") or
+             protocol_name:find("TLSv1%.0") or protocol_name:find("TLSv1:0") then
+        version_str = "TLS 1.0"
+        found_version = true
+      end
+    end
+    
+    -- If protocol name didn't help, check the full protocol string (case-insensitive and case-sensitive)
+    if not found_version then
+      -- Check for TLS 1.3 - try many variations
+      if all_protocols:find("tlsv1%.3") or all_protocols:find("tlsv1:3") or
+         all_protocols:find("tls%.1%.3") or all_protocols:find("tls 1%.3") or
+         all_protocols:find("tlsv1_3") or all_protocols:find("tlsv13") or
+         all_protocols:find("tls1%.3") or all_protocols:find("tls 1:3") or
+         all_protocols:find("tls%-1%.3") or all_protocols:find("tlsv1%.3 record") or
+         all_protocols:find("tlsv1%.3 layer") or
+         all_protocols_orig:find("TLSv1%.3") or all_protocols_orig:find("TLSv1:3") or
+         all_protocols_orig:find("TLS 1%.3") or all_protocols_orig:find("TLS%.1%.3") or
+         all_protocols_orig:find("TLSv13") or all_protocols_orig:find("TLSv1_3") then
+        version_str = "TLS 1.3"
+        found_version = true
+      end
     end
     
     -- Also check each protocol part individually (protocol string is colon-separated)
@@ -1809,30 +1914,13 @@ local function collect_tls_stats()
       end
     end
     
-    -- Method 2: Check supported_versions extension (accurate for TLS 1.3)
-    if not version_str then
-      local supported_versions = f2s(f_tls_supported_versions)
-      if supported_versions then
-        local sv_lower = supported_versions:lower()
-        if sv_lower:find("1%.3") or sv_lower:find("1:3") or sv_lower:find("0x0304") or sv_lower:find("0304") then
-          version_str = "TLS 1.3"
-        elseif sv_lower:find("1%.2") or sv_lower:find("1:2") or sv_lower:find("0x0303") or sv_lower:find("0303") then
-          version_str = "TLS 1.2"
-        elseif sv_lower:find("1%.1") or sv_lower:find("1:1") or sv_lower:find("0x0302") or sv_lower:find("0302") then
-          version_str = "TLS 1.1"
-        elseif sv_lower:find("1%.0") or sv_lower:find("1:0") or sv_lower:find("0x0301") or sv_lower:find("0301") then
-          version_str = "TLS 1.0"
-        end
-      end
-    end
-    
-    -- Method 3: Fall back to version field (least accurate, especially for TLS 1.3)
-    -- Note: TLS 1.3 uses 0x0303 in record layer for compatibility, so this is unreliable
+    -- Method 3: Fall back to handshake.version field ONLY (for handshake packets)
+    -- Note: We skip record.version entirely because it's misleading (TLS 1.3 uses 0x0303 for compatibility)
+    -- Only use handshake.version if we're in a handshake packet and haven't detected via other methods
     if not version_str then
       local handshake_version = f2n(f_tls_handshake_version)
-      local record_version = f2n(f_tls_record_version)
       
-      -- Prefer handshake version (more accurate)
+      -- Only use handshake version if present (indicates we're in a handshake packet)
       if handshake_version then
         if handshake_version == 0x0304 then
           version_str = "TLS 1.3"  -- Handshake version 0x0304 indicates TLS 1.3
@@ -1841,47 +1929,27 @@ local function collect_tls_stats()
         elseif handshake_version == 0x0302 then
           version_str = "TLS 1.1"
         elseif handshake_version == 0x0303 then
-          version_str = "TLS 1.2"  -- Handshake version 0x0303 is TLS 1.2
+          -- Handshake version 0x0303 is TLS 1.2 (not ambiguous like record.version)
+          version_str = "TLS 1.2"
         elseif handshake_version == 0x0300 then
           version_str = "SSL 3.0"
         end
-      elseif record_version then
-        -- Only record version available - be very careful
-        if record_version == 0x0304 then
-          version_str = "TLS 1.3"
-        elseif record_version == 0x0301 then
-          version_str = "TLS 1.0"
-        elseif record_version == 0x0302 then
-          version_str = "TLS 1.1"
-        elseif record_version == 0x0303 then
-          -- 0x0303 in record layer is ambiguous: could be TLS 1.2 or TLS 1.3
-          -- Since protocol string didn't match, we can't be sure, but default to TLS 1.2
-          -- This is a limitation - we should have caught it from protocol string
-          version_str = "TLS 1.2"
-        elseif record_version == 0x0300 then
-          version_str = "SSL 3.0"
-        end
       end
+      -- NOTE: We intentionally skip record.version because it's misleading:
+      -- TLS 1.3 uses 0x0303 in record layer for compatibility, so we can't reliably
+      -- distinguish TLS 1.2 from TLS 1.3 using record.version alone.
+      -- We only count versions from handshake packets (supported_versions, cipher suite, or handshake.version)
     end
     
-    -- Only record known TLS/SSL versions (skip if we couldn't determine)
+    -- Only record known TLS/SSL versions
+    -- IMPORTANT: For TLS 1.3, we should only count when we have reliable detection
+    -- (supported_versions extension or TLS 1.3 cipher suite)
+    -- If we couldn't determine reliably, don't guess - skip this packet's version count
     if version_str then
       stats.versions[version_str] = (stats.versions[version_str] or 0) + 1
     else
-      -- Debug: Track packets where we couldn't determine version
-      -- This helps identify what protocol strings look like
-      if not stats.debug_unknown_protocols then
-        stats.debug_unknown_protocols = {}
-      end
-      local proto_key = protocols_lower
-      if pinfo_protocol and pinfo_protocol ~= "" then
-        proto_key = proto_key .. " | pinfo: " .. pinfo_protocol
-      end
-      -- Only store first 5 unique protocol strings to avoid memory issues
-      if not stats.debug_unknown_protocols[proto_key] and 
-         #stats.debug_unknown_protocols < 5 then
-        table.insert(stats.debug_unknown_protocols, proto_key)
-      end
+      -- Couldn't determine version - this is OK for non-handshake packets
+      -- Don't count them as any version to avoid false positives
     end
     
     -- SNI (Server Name Indication)
@@ -2044,10 +2112,15 @@ local function generate_summary_report_internal()
   tw:append("SVG generated: "..svg_path.."\n")
   
   local tools = detect_converters()
-  tw:append("\nConverters detected:\n")
-  tw:append("  rsvg-convert: "..(tools.rsvg or "not found").."\n")
-  tw:append("  inkscape    : "..(tools.inkscape or "not found").."\n")
-  tw:append("  imagemagick : "..(tools.magick or "not found").."\n\n")
+  -- Only report if all dependencies are met, otherwise show what's missing
+  local has_converter = tools.rsvg or tools.inkscape or tools.magick
+  if has_converter then
+    tw:append("\n✓ All dependencies met - PDF export available\n")
+  else
+    tw:append("\n✗ Missing dependencies:\n")
+    tw:append("  - SVG converter: rsvg-convert, inkscape, or imagemagick\n")
+    tw:append("  Install: brew install librsvg (recommended)\n")
+  end
   
   tw:add_button("Export PDF", function()
     export_single_page_pdf(svg_path, tw, tools, paper.name)
@@ -2083,8 +2156,6 @@ local function generate_detailed_report_internal()
   end
   
   tw:append(string.format("Analyzed %d packets\n", basic_stats.total_packets))
-  tw:append(string.format("Frame packets scanned: %d, TLS packets found: %d\n", 
-    tls_stats.debug_packet_count or 0, tls_stats.debug_tls_packet_count or 0))
   
   local tls_version_count = 0
   for k,v in pairs(tls_stats.versions) do 
@@ -2100,38 +2171,6 @@ local function generate_detailed_report_internal()
     quic_info = string.format(", QUIC packets: %d", tls_stats.quic_count)
   end
   tw:append(string.format("TLS versions found: %d, SNI names: %d%s\n", tls_version_count, tls_sni_count, quic_info))
-  
-  -- Force flush and add very visible debug output
-  tw:append("\n")
-  tw:append("*** DEBUG OUTPUT START ***\n")
-  tw:append("========================================\n")
-  tw:append("DEBUG - Protocol string analysis\n")
-  tw:append("========================================\n")
-  tw:append(string.format("debug_protocol_samples exists: %s\n", tostring(tls_stats.debug_protocol_samples ~= nil)))
-  if tls_stats.debug_protocol_samples then
-    tw:append(string.format("debug_protocol_samples count: %d\n", #tls_stats.debug_protocol_samples))
-    if #tls_stats.debug_protocol_samples > 0 then
-      tw:append("Sample protocol strings from first TLS packets:\n")
-      for i, proto_str in ipairs(tls_stats.debug_protocol_samples) do
-        tw:append(string.format("  [%d] %s\n", i, proto_str))
-      end
-    else
-      tw:append("  (No protocol samples collected - tls_packet_count was 0 or samples not stored)\n")
-    end
-  else
-    tw:append("  (debug_protocol_samples table not initialized)\n")
-  end
-  tw:append("========================================\n")
-  tw:append("\n")
-  
-  -- Debug: Show protocol strings we couldn't identify (helps diagnose detection issues)
-  if tls_stats.debug_unknown_protocols and #tls_stats.debug_unknown_protocols > 0 then
-    tw:append("DEBUG - Protocol strings from TLS packets we couldn't identify:\n")
-    for i, proto_str in ipairs(tls_stats.debug_unknown_protocols) do
-      tw:append(string.format("  [%d] %s\n", i, proto_str))
-    end
-    tw:append("(This helps identify why TLS 1.3/QUIC might not be detected)\n\n")
-  end
   
   -- Helper to convert dict to sorted array
   local function dict_to_sorted_array(dict, limit)
@@ -2585,7 +2624,11 @@ local function generate_detailed_report_internal()
     -- TLS Version distribution (horizontal bar chart)
     if #top_tls_versions > 0 then
       add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="#333">7.1 TLS/SSL/QUIC Version Distribution</text>\n', y_pos))
-      y_pos = y_pos + 25
+      y_pos = y_pos + 20
+      
+      -- Add subtitle indicating what the numbers represent (make it very visible)
+      add(string.format('<text x="60" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#444" font-weight="500">Values represent the number of observed handshakes</text>\n', y_pos))
+      y_pos = y_pos + 30
       
       local bar_height = 30
       local bar_x_start = 150
@@ -2613,16 +2656,14 @@ local function generate_detailed_report_internal()
         add(string.format('<rect x="%d" y="%d" width="%.1f" height="%d" fill="%s" fill-opacity="0.8"/>\n',
           bar_x_start, bar_y, bar_width, bar_height, color))
         
-        -- Value label (inside bar if wide enough, otherwise outside)
-        local label_x = bar_x_start + bar_width + 8
-        local label_fill = "#333"
-        if bar_width > 50 then
-          -- Put label inside bar if bar is wide enough
-          label_x = bar_x_start + bar_width - 5
-          label_fill = "#fff"
-        end
-        add(string.format('<text x="%.1f" y="%d" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="600" fill="%s">%d</text>\n',
-          label_x, bar_y + bar_height/2 + 4, label_fill, item.value))
+        -- Value label at the end of the bar (right edge, not going beyond) with white text
+        local label_x = bar_x_start + bar_width - 8  -- 8px padding from right edge
+        local label_fill = "#ffffff"  -- Always white (inverted) for visibility on colored bar
+        local label_text = tostring(item.value)
+        
+        -- Ensure label doesn't go beyond bar (use text-anchor="end" for right alignment)
+        add(string.format('<text x="%.1f" y="%d" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="600" fill="%s">%s</text>\n',
+          label_x, bar_y + bar_height/2 + 4, label_fill, label_text))
       end
       
       y_pos = y_pos + (#top_tls_versions * (bar_height + 8)) + 30
@@ -2957,10 +2998,22 @@ local function generate_detailed_report_internal()
   tw:append(string.format("Total content height: %d px (%.1f pages)\n", final_height, final_height / paper.height))
   
   local tools = detect_converters()
-  tw:append("\nConverters detected:\n")
-  tw:append("  rsvg-convert: "..(tools.rsvg or "not found").."\n")
-  tw:append("  inkscape    : "..(tools.inkscape or "not found").."\n")
-  tw:append("  imagemagick : "..(tools.magick or "not found").."\n\n")
+  -- Only report if all dependencies are met, otherwise show what's missing
+  local has_converter = tools.rsvg or tools.inkscape or tools.magick
+  local has_combiner = tools.pdfunite or tools.pdftk
+  if has_converter and has_combiner then
+    tw:append("\n✓ All dependencies met - PDF export available\n")
+  else
+    tw:append("\n✗ Missing dependencies:\n")
+    if not has_converter then
+      tw:append("  - SVG converter: rsvg-convert, inkscape, or imagemagick\n")
+      tw:append("    Install: brew install librsvg (recommended)\n")
+    end
+    if not has_combiner then
+      tw:append("  - PDF combiner: pdfunite or pdftk\n")
+      tw:append("    Install: brew install poppler (pdfunite) or pdftk-java\n")
+    end
+  end
   
   -- Determine paper size string for export
   local paper_size_name = paper.name == "Legal" and "Legal" or "A4"
