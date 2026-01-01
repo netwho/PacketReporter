@@ -1,6 +1,6 @@
 # PacketReporter
 
-[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-public%20beta-orange.svg)](CHANGELOG.md)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Wireshark](https://img.shields.io/badge/Wireshark-4.0%2B-1679A7.svg)](https://www.wireshark.org/)
@@ -11,11 +11,11 @@
 
 A Wireshark plugin for generating network analysis reports with visualizations and PDF export.
 
-> **⚠️ Beta Status**: This is version 0.2.3, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
+> **⚠️ Beta Status**: This is version 0.2.4, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 >
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 >
-> **✨ Windows Users**: Version 0.2.3 includes VBScript-based silent execution—console windows during report generation are now significantly reduced. Ensure external tools (rsvg-convert, pdfunite) are added to your system PATH.
+> **✨ Windows Users**: Version 0.2.4 includes VBScript-based silent execution—console windows during report generation are now significantly reduced. Ensure external tools (rsvg-convert, pdfunite) are added to your system PATH.
 
 ## ✨ Features
 
@@ -128,7 +128,9 @@ Comprehensive analysis with 12 major sections (3-8 pages):
 5. **Port Analysis** - TCP/UDP port statistics with charts
 6. **Protocol Hierarchy** - Complete protocol stack visualization showing L2-L7 protocols and application-layer content (SMB, HTTP content types, etc.)
 7. **DNS Analysis** - Resource record types, authoritative responses, domain tables
-8. **TLS/SSL Analysis** - Protocol versions, SNI names, certificate analysis
+8. **TLS/SSL Analysis** - Protocol versions (TLS 1.0-1.3, SSL 3.0, QUIC), SNI names, certificate analysis
+   - Accurate TLS 1.3 detection using `supported_versions` extension and cipher suites
+   - Only counts handshake packets to avoid false positives from application data
 9. **HTTP Analysis** - User agents, hosts, status code distribution
 10. **MAC Layer Analysis** - Frame sizes, traffic types, vendor identification
 11. **IP Layer Analysis** - TTL distribution, fragmentation statistics
