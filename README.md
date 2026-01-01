@@ -15,7 +15,7 @@ A Wireshark plugin for generating network analysis reports with visualizations a
 >
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 >
-> **✨ Windows Users**: Version 0.2.4 includes VBScript-based silent execution—console windows during report generation are now significantly reduced. Ensure external tools (rsvg-convert, pdfunite) are added to your system PATH.
+> **✨ Windows Users**: Console windows may briefly appear during PDF generation. Silent execution is planned to avoid these popups but has no priority as this has no impact on functionality. Ensure external tools (rsvg-convert, pdftk) are added to your system PATH.
 
 ## ✨ Features
 
@@ -149,8 +149,8 @@ Comprehensive analysis with 12 major sections (3-8 pages):
 - Wireshark 4.0 or later (includes Lua 5.2+)
 
 ### Optional (for PDF export)
-- `rsvg-convert` (recommended) or `inkscape` or `imagemagick`
-- `pdfunite` (recommended) or `pdftk`
+- `rsvg-convert` (recommended) or `inkscape` or `imagemagick` - Converts SVG to PDF
+- `pdfunite` (recommended) or `pdftk` - Combines multiple PDF pages into a single document
 
 **macOS:**
 ```bash
@@ -301,7 +301,9 @@ Comprehensive analysis based on Tranalyzer's reporting template.
    sudo dnf install librsvg2-tools
    
    # Windows
-   # Download from https://github.com/miyako/console-rsvg-convert
+   # Download rsvg-convert from https://github.com/miyako/console-rsvg-convert
+   # Download pdftk from https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/
+   # (pdftk is used to combine multiple PDF pages into a single document)
    ```
 
 3. **Restart Wireshark**
