@@ -1,6 +1,6 @@
 # PacketReporter
 
-[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.5-blue.svg)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-public%20beta-orange.svg)](CHANGELOG.md)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 [![Wireshark](https://img.shields.io/badge/Wireshark-4.0%2B-1679A7.svg)](https://www.wireshark.org/)
@@ -11,7 +11,7 @@
 
 A Wireshark plugin for generating network analysis reports with visualizations and PDF export.
 
-> **⚠️ Beta Status**: This is version 0.2.4, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
+> **⚠️ Beta Status**: This is version 0.2.5, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
 >
 > **⚠️ Important**: This plugin requires external tools for SVG and PDF handling. Please review the [Platform Prerequisites](PLATFORM_PREREQUISITES.md) documentation and check your platform's [installer documentation](installers/) before installation to ensure all dependencies are available.
 >
