@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.5] - 2026-01-16
+
+### Added
+- **Windows Quick Install Manual** - Professional PDF installation guides
+  - English version (WINDOWS_QUICK_INSTALL_MANUAL_en.pdf)
+  - German version (WINDOWS_QUICK_INSTALL_MANUAL_de.pdf)
+  - Step-by-step instructions for rsvg-convert and PDFtk installation
+  - Comprehensive prerequisites verification guide
+  - Troubleshooting section for common Windows issues
+  - Proper A4 page formatting with optimized spacing
+
+### Fixed
+- **IP Address Truncation in Top 10 Talkers Report**
+  - Fixed issue where IPv4 addresses were truncated (e.g., "192.168.5..." instead of full "192.168.5.100")
+  - Increased label character limit from 12 to 15 characters for full IPv4 address display
+  - Implemented adaptive font sizing: 9pt normal, 8pt for 12-15 char labels, 7.5pt for longer labels
+  - Applied fix to both Summary and Detailed reports
+- **Windows Prerequisites Checker** - `check-prereqs.ps1`
+  - Improved PDFtk detection to check both system PATH and common installation locations
+  - Added check for `Program Files` and `Program Files (x86)` directories
+  - Added prominent warning reminding users to log off/on after PATH modifications
+  - Enhanced error messages for better troubleshooting
+- **Page Layout** - Tighter spacing in Windows manual
+  - Optimized margins and padding to fit content properly on A4 pages
+  - Improved section spacing to prevent orphaned content
+  - Better list item density for comprehensive coverage
+
+### Changed
+- **Documentation Structure**
+  - Moved Windows installation details to dedicated quick-start manual
+  - Platform-specific information now centralized in PLATFORM_PREREQUISITES.md
+  - Installation guides separated from technical documentation
+
+### Technical Details
+- ~2,580 lines of Lua code in main plugin
+- New Windows installer support documentation (EN/DE)
+- Enhanced installer scripts with improved error handling
+- Python-based PDF converter for easy manual distribution
+
+---
+
 ## [0.2.4] - 2025-01-01
 
 ### Changed
