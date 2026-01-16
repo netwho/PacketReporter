@@ -20,13 +20,14 @@ function Write-ColorOutput($ForegroundColor) {
 }
 
 function Write-Success { Write-ColorOutput Green "[OK] $args" }
-function Write-Warning { Write-ColorOutput Yellow "[!] $args" }
-function Write-Error { Write-ColorOutput Red "[X] $args" }
+function Write-Warning { Write-ColorOutput Yellow "[WARNING] $args" }
+function Write-Error { Write-ColorOutput Red "[ERROR] $args" }
 function Write-Info { Write-ColorOutput Cyan "-> $args" }
 function Write-Header { Write-ColorOutput Blue $args }
 
 Write-Header "============================================"
 Write-Header "PacketReporter - Prerequisites Check"
+Write-Header "Version 0.2.5 (Public Beta)"
 Write-Header "============================================"
 Write-Output ""
 
@@ -41,10 +42,7 @@ Write-Output ""
 
 # Track overall status
 $allRequired = $true
-$hasRecommendedConverter = $false
-$hasRecommendedCombiner = $false
-$hasAnyConverter = $false
-$hasAnyCombiner = $false
+$allOptional = $true
 
 #============================================
 # Required Dependencies
@@ -120,139 +118,39 @@ try {
 Write-Output ""
 
 #============================================
-# Recommended Tools (PDF Export)
+# Optional Dependencies (PDF Export)
 #============================================
-Write-Header "RECOMMENDED TOOLS (for PDF Export)"
+Write-Header "OPTIONAL DEPENDENCIES (for PDF Export)"
 Write-Header "--------------------------------------------"
 Write-Output ""
-Write-Output "These tools work well together and are recommended:"
+
+# SVG Converters
+Write-Header "SVG Converters (need at least one):"
 Write-Output ""
 
-# Check for console-rsvg-convert (Recommended SVG Converter)
-Write-Info "Checking for console-rsvg-convert (recommended SVG converter)..."
-$rsvgFound = $false
+$hasConverter = $false
+
+# Check for rsvg-convert
+Write-Info "Checking for rsvg-convert (recommended - fastest)..."
 if (Get-Command rsvg-convert -ErrorAction SilentlyContinue) {
     try {
-        # Try to get version - redirect both stdout and stderr
-        $rsvgVersion = (rsvg-convert --version 2>&1) | Select-Object -First 1
-        if ($rsvgVersion -and $rsvgVersion -notmatch "error|not found") {
-            Write-Success "console-rsvg-convert found"
-            Write-Output "  Version: $rsvgVersion"
-            $rsvgFound = $true
-            $hasRecommendedConverter = $true
-            $hasAnyConverter = $true
-        }
+        $rsvgVersion = (rsvg-convert --version 2>$null) | Select-Object -First 1
+        Write-Success "rsvg-convert found"
+        Write-Output "  Version: $rsvgVersion"
+        $hasConverter = $true
     } catch {
-        # If version check fails, try to run it to see if it works
-        try {
-            $testResult = (rsvg-convert --version 2>&1)
-            if ($LASTEXITCODE -eq 0 -or $testResult) {
-                Write-Success "console-rsvg-convert found"
-                $rsvgFound = $true
-                $hasRecommendedConverter = $true
-                $hasAnyConverter = $true
-            }
-        } catch {
-            # Command exists but may not work properly
-            Write-Warning "console-rsvg-convert command found but may not be working correctly"
-        }
+        Write-Success "rsvg-convert found"
+        $hasConverter = $true
     }
-}
-
-if (-not $rsvgFound) {
-    Write-Warning "console-rsvg-convert not found"
-    Write-Output "  Download: https://github.com/miyako/console-rsvg-convert/releases"
-    Write-Output "  Copy the single .exe file to a directory in PATH"
-    Write-Output "  (e.g., C:\Windows\ or C:\Tools\)"
+} else {
+    Write-Warning "rsvg-convert not found"
+    Write-Output "  Install: choco install rsvg-convert"
+    Write-Output "  Manual: https://github.com/miyako/console-rsvg-convert/releases"
 }
 Write-Output ""
 
-# Check for PDFtk (Recommended PDF Combiner)
-Write-Info "Checking for PDFtk (recommended PDF combiner)..."
-$pdftkFound = $false
-$pdftkPath = $null
-
-# Check common installation paths
-$pdftkPaths = @(
-    "${env:ProgramFiles}\PDFtk\bin\pdftk.exe",
-    "${env:ProgramFiles(x86)}\PDFtk\bin\pdftk.exe",
-    "${env:ProgramFiles}\PDFtk Server\bin\pdftk.exe",
-    "${env:ProgramFiles(x86)}\PDFtk Server\bin\pdftk.exe"
-)
-
-# First check if it's in PATH
-if (Get-Command pdftk -ErrorAction SilentlyContinue) {
-    try {
-        $pdftkVersion = (pdftk --version 2>&1) | Select-Object -First 1
-        if ($pdftkVersion -and $pdftkVersion -notmatch "error|not found") {
-            Write-Success "PDFtk found (in PATH)"
-            Write-Output "  Version: $pdftkVersion"
-            $pdftkFound = $true
-            $hasRecommendedCombiner = $true
-            $hasAnyCombiner = $true
-        }
-    } catch {
-        try {
-            $testResult = (pdftk --version 2>&1)
-            if ($LASTEXITCODE -eq 0 -or $testResult) {
-                Write-Success "PDFtk found (in PATH)"
-                $pdftkFound = $true
-                $hasRecommendedCombiner = $true
-                $hasAnyCombiner = $true
-            }
-        } catch {}
-    }
-}
-
-# If not in PATH, check common installation directories
-if (-not $pdftkFound) {
-    foreach ($path in $pdftkPaths) {
-        if (Test-Path $path) {
-            $pdftkPath = $path
-            try {
-                $pdftkVersion = (& $path --version 2>&1) | Select-Object -First 1
-                Write-Success "PDFtk found"
-                Write-Output "  Path: $path"
-                if ($pdftkVersion -and $pdftkVersion -notmatch "error|not found") {
-                    Write-Output "  Version: $pdftkVersion"
-                }
-                Write-Warning "  PDFtk is installed but not in PATH"
-                Write-Output "  Add to PATH: $($path | Split-Path -Parent)"
-                $pdftkFound = $true
-                $hasRecommendedCombiner = $true
-                $hasAnyCombiner = $true
-                break
-            } catch {
-                Write-Success "PDFtk found at $path"
-                Write-Warning "  PDFtk is installed but not in PATH"
-                Write-Output "  Add to PATH: $($path | Split-Path -Parent)"
-                $pdftkFound = $true
-                $hasRecommendedCombiner = $true
-                $hasAnyCombiner = $true
-                break
-            }
-        }
-    }
-}
-
-if (-not $pdftkFound) {
-    Write-Warning "PDFtk not found"
-    Write-Output "  Download: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
-    Write-Output "  Install PDFtk Free (includes command-line tool)"
-}
-Write-Output ""
-
-#============================================
-# Alternative Tools (Optional)
-#============================================
-Write-Header "ALTERNATIVE TOOLS (Optional)"
-Write-Header "--------------------------------------------"
-Write-Output ""
-Write-Output "These alternatives are also supported:"
-Write-Output ""
-
-# Check for Inkscape (Alternative SVG Converter)
-Write-Info "Checking for Inkscape (alternative SVG converter)..."
+# Check for Inkscape
+Write-Info "Checking for Inkscape (alternative)..."
 $inkscapePaths = @(
     "${env:ProgramFiles}\Inkscape\bin\inkscape.exe",
     "${env:ProgramFiles(x86)}\Inkscape\bin\inkscape.exe"
@@ -263,91 +161,162 @@ foreach ($path in $inkscapePaths) {
         Write-Success "Inkscape found"
         Write-Output "  Path: $path"
         try {
-            $inkscapeVersion = (& $path --version 2>&1) | Select-Object -First 1
-            if ($inkscapeVersion) {
-                Write-Output "  Version: $inkscapeVersion"
-            }
+            $inkscapeVersion = (& $path --version 2>$null) | Select-Object -First 1
+            Write-Output "  Version: $inkscapeVersion"
         } catch {}
         $inkscapeFound = $true
-        $hasAnyConverter = $true
+        $hasConverter = $true
         break
     }
 }
 if (-not $inkscapeFound) {
-    Write-Info "Inkscape not found (optional)"
+    Write-Warning "Inkscape not found"
+    Write-Output "  Install: choco install inkscape"
+    Write-Output "  Manual: https://inkscape.org/release/"
 }
 Write-Output ""
 
-# Check for ImageMagick (Alternative SVG Converter)
-# Note: We need to verify it's actually ImageMagick, not Windows' built-in convert command
-Write-Info "Checking for ImageMagick (alternative SVG converter)..."
+# Check for ImageMagick
+Write-Info "Checking for ImageMagick (alternative)..."
 $magickFound = $false
-
-# First check for 'magick' command (ImageMagick 7+)
 if (Get-Command magick -ErrorAction SilentlyContinue) {
     try {
-        $magickVersion = (magick --version 2>&1) | Select-Object -First 1
-        if ($magickVersion -and $magickVersion -match "ImageMagick|Version:") {
-            Write-Success "ImageMagick found (magick command)"
-            Write-Output "  Version: $magickVersion"
-            $magickFound = $true
-            $hasAnyConverter = $true
-        }
-    } catch {}
+        $magickVersion = (magick --version 2>$null) | Select-Object -First 1
+        Write-Success "ImageMagick found (magick)"
+        Write-Output "  Version: $magickVersion"
+        $magickFound = $true
+        $hasConverter = $true
+    } catch {
+        Write-Success "ImageMagick found"
+        $magickFound = $true
+        $hasConverter = $true
+    }
+} elseif (Get-Command convert -ErrorAction SilentlyContinue) {
+    try {
+        $convertVersion = (convert --version 2>$null) | Select-Object -First 1
+        Write-Success "ImageMagick found (convert)"
+        Write-Output "  Version: $convertVersion"
+        $magickFound = $true
+        $hasConverter = $true
+    } catch {
+        Write-Success "ImageMagick found"
+        $magickFound = $true
+        $hasConverter = $true
+    }
 }
-
-# Check for 'convert' command, but verify it's ImageMagick, not Windows convert
 if (-not $magickFound) {
-    if (Get-Command convert -ErrorAction SilentlyContinue) {
-        try {
-            # Windows has a built-in 'convert' command, so we need to verify it's ImageMagick
-            # ImageMagick's convert will show version info, Windows convert will show help for disk conversion
-            $convertOutput = (convert --version 2>&1) | Out-String
-            if ($convertOutput -match "ImageMagick|Version:") {
-                Write-Success "ImageMagick found (convert command)"
-                Write-Output "  Version: $($convertOutput -split "`n" | Select-Object -First 1)"
-                $magickFound = $true
-                $hasAnyConverter = $true
-            } else {
-                # This is Windows' built-in convert command, not ImageMagick
-                Write-Info "ImageMagick not found (Windows convert command detected, not ImageMagick)"
-            }
-        } catch {
-            # If we can't determine, assume it's not ImageMagick
-            Write-Info "ImageMagick not found"
+    Write-Warning "ImageMagick not found"
+    Write-Output "  Install: choco install imagemagick"
+    Write-Output "  Manual: https://imagemagick.org/script/download.php#windows"
+}
+Write-Output ""
+
+# PDF Combiners
+Write-Header "PDF Combiners (need at least one):"
+Write-Output ""
+
+$hasCombiner = $false
+
+# Check for pdfunite
+Write-Info "Checking for pdfunite (recommended)..."
+if (Get-Command pdfunite -ErrorAction SilentlyContinue) {
+    try {
+        $pdfuniteVersion = (pdfunite --version 2>$null) | Select-Object -First 1
+        Write-Success "pdfunite found"
+        Write-Output "  Version: $pdfuniteVersion"
+        $hasCombiner = $true
+    } catch {
+        Write-Success "pdfunite found"
+        $hasCombiner = $true
+    }
+} else {
+    Write-Warning "pdfunite not found"
+    Write-Output "  Install: choco install poppler"
+    Write-Output "  Manual: https://github.com/oschwartz10612/poppler-windows/releases"
+}
+Write-Output ""
+
+# Check for pdftk
+Write-Info "Checking for pdftk (recommended alternative)..."
+$pdftkFound = $false
+
+# Check both in PATH and common installation locations
+if (Get-Command pdftk -ErrorAction SilentlyContinue) {
+    try {
+        $pdftkVersion = (pdftk --version 2>$null) | Select-Object -First 1
+        Write-Success "pdftk found in PATH"
+        Write-Output "  Version: $pdftkVersion"
+        $pdftkFound = $true
+        $hasCombiner = $true
+    } catch {
+        Write-Success "pdftk found in PATH"
+        $pdftkFound = $true
+        $hasCombiner = $true
+    }
+} else {
+    # Check common installation paths
+    $pdftkPaths = @(
+        "${env:ProgramFiles}\PDFtk\bin\pdftk.exe",
+        "${env:ProgramFiles(x86)}\PDFtk\bin\pdftk.exe",
+        "${env:ProgramFiles}\PDFtk Server\bin\pdftk.exe",
+        "${env:ProgramFiles(x86)}\PDFtk Server\bin\pdftk.exe",
+        "C:\Program Files\PDFtk\bin\pdftk.exe",
+        "C:\Program Files (x86)\PDFtk\bin\pdftk.exe"
+    )
+    
+    foreach ($path in $pdftkPaths) {
+        if (Test-Path $path) {
+            Write-Success "pdftk found at: $path"
+            try {
+                $pdftkVersion = (& $path --version 2>$null) | Select-Object -First 1
+                Write-Output "  Version: $pdftkVersion"
+            } catch {}
+            $pdftkFound = $true
+            $hasCombiner = $true
+            break
         }
-    } else {
-        Write-Info "ImageMagick not found (optional)"
+    }
+    
+    if (-not $pdftkFound) {
+        Write-Warning "pdftk not found in PATH or standard locations"
+        Write-Output ""
+        Write-Output "  Installation options:"
+        Write-Output "  1. Chocolatey (easiest): choco install pdftk"
+        Write-Output "  2. Direct download:"
+        Write-Output "     https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/pdftk_free-2.02-win-setup.exe"
+        Write-Output ""
+        Write-ColorOutput Yellow "  ⚠️  IMPORTANT: After installing pdftk, you MUST log off and log back in"
+        Write-ColorOutput Yellow "      to refresh your system PATH. The plugin will not find pdftk until you do."
+        Write-Output ""
     }
 }
 Write-Output ""
 
-# Check for pdfunite (Alternative PDF Combiner)
-Write-Info "Checking for pdfunite (alternative PDF combiner)..."
-$pdfuniteFound = $false
-if (Get-Command pdfunite -ErrorAction SilentlyContinue) {
-    try {
-        $pdfuniteVersion = (pdfunite --version 2>&1) | Select-Object -First 1
-        if ($pdfuniteVersion -and $pdfuniteVersion -notmatch "error|not found") {
-            Write-Success "pdfunite found"
-            Write-Output "  Version: $pdfuniteVersion"
-            $pdfuniteFound = $true
-            $hasAnyCombiner = $true
-        }
-    } catch {
-        try {
-            $testResult = (pdfunite --version 2>&1)
-            if ($LASTEXITCODE -eq 0 -or $testResult) {
-                Write-Success "pdfunite found"
-                $pdfuniteFound = $true
-                $hasAnyCombiner = $true
-            }
-        } catch {}
-    }
-}
+#============================================
+# Package Managers
+#============================================
+Write-Header "PACKAGE MANAGERS"
+Write-Header "--------------------------------------------"
+Write-Output ""
 
-if (-not $pdfuniteFound) {
-    Write-Info "pdfunite not found (optional)"
+# Check for Chocolatey
+Write-Info "Checking for Chocolatey..."
+if (Get-Command choco -ErrorAction SilentlyContinue) {
+    try {
+        $chocoVersion = (choco --version 2>$null)
+        Write-Success "Chocolatey found"
+        Write-Output "  Version: $chocoVersion"
+    } catch {
+        Write-Success "Chocolatey found"
+    }
+} else {
+    Write-Warning "Chocolatey not found (recommended for easy installation)"
+    Write-Output "  Install from: https://chocolatey.org/install"
+    Write-Output ""
+    Write-Output "  Quick install command (run as Administrator):"
+    Write-Output "    Set-ExecutionPolicy Bypass -Scope Process -Force;"
+    Write-Output "    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;"
+    Write-Output "    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
 }
 Write-Output ""
 
@@ -397,20 +366,16 @@ if ($allRequired) {
 }
 Write-Output ""
 
-# Check PDF export capability
-if ($hasRecommendedConverter -and $hasRecommendedCombiner) {
-    Write-Success "Recommended tools for PDF export are installed"
+if ($hasConverter -and $hasCombiner) {
+    Write-Success "All optional dependencies for PDF export are installed"
     Write-Output "  Full PDF export functionality available"
-} elseif ($hasAnyConverter -and $hasAnyCombiner) {
-    Write-Warning "Alternative tools for PDF export are installed"
-    Write-Output "  PDF export functionality available (but recommended tools not found)"
 } else {
-    Write-Warning "PDF export tools are missing"
-    if (-not $hasAnyConverter) {
-        Write-Output "  - Missing SVG converter"
+    Write-Warning "Some optional dependencies are missing"
+    if (-not $hasConverter) {
+        Write-Output "  • Missing SVG converter (rsvg-convert, Inkscape, or ImageMagick)"
     }
-    if (-not $hasAnyCombiner) {
-        Write-Output "  - Missing PDF combiner"
+    if (-not $hasCombiner) {
+        Write-Output "  • Missing PDF combiner (pdfunite or pdftk)"
     }
     Write-Output ""
     Write-Output "  Plugin will work without these, but PDF export will be unavailable"
@@ -420,31 +385,41 @@ Write-Output ""
 #============================================
 # Installation Recommendations
 #============================================
-if (-not $hasRecommendedConverter -or -not $hasRecommendedCombiner) {
+if (-not $hasConverter -or -not $hasCombiner) {
     Write-Header "RECOMMENDED INSTALLATION"
     Write-Header "--------------------------------------------"
     Write-Output ""
-    Write-ColorOutput Green "This combination works well:"
-    Write-Output ""
     
-    if (-not $hasRecommendedConverter) {
-        Write-ColorOutput Cyan "1. console-rsvg-convert (SVG Converter):"
-        Write-Output "   - Download: https://github.com/miyako/console-rsvg-convert/releases"
-        Write-Output "   - Copy the single .exe file to a directory in PATH"
-        Write-Output "   - Option A: Copy to C:\Windows\ (already in PATH)"
-        Write-Output "   - Option B: Copy to C:\Tools\ and add to PATH"
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        Write-ColorOutput Green "Using Chocolatey (easiest method):"
         Write-Output ""
-    }
-    
-    if (-not $hasRecommendedCombiner) {
-        Write-ColorOutput Cyan "2. PDFtk (PDF Combiner):"
-        Write-Output "   - Download: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
-        Write-Output "   - Install PDFtk Free (includes command-line tool)"
-        Write-Output "   - Installer will add to PATH automatically"
+        Write-Output "  Run as Administrator:"
+        if (-not $hasConverter -and -not $hasCombiner) {
+            Write-ColorOutput Cyan "    choco install rsvg-convert poppler"
+        } elseif (-not $hasConverter) {
+            Write-ColorOutput Cyan "    choco install rsvg-convert"
+        } elseif (-not $hasCombiner) {
+            Write-ColorOutput Cyan "    choco install poppler"
+        }
+    } else {
+        Write-ColorOutput Green "Install Chocolatey first (recommended):"
+        Write-Output "  https://chocolatey.org/install"
         Write-Output ""
+        Write-ColorOutput Green "Or manually install:"
+        if (-not $hasConverter) {
+            Write-Output ""
+            Write-Output "  SVG Converter (choose one):"
+            Write-Output "    • librsvg: https://github.com/miyako/console-rsvg-convert/releases"
+            Write-Output "    • Inkscape: https://inkscape.org/release/"
+            Write-Output "    • ImageMagick: https://imagemagick.org/script/download.php#windows"
+        }
+        if (-not $hasCombiner) {
+            Write-Output ""
+            Write-Output "  PDF Combiner (choose one):"
+            Write-Output "    • Poppler: https://github.com/oschwartz10612/poppler-windows/releases"
+            Write-Output "    • PDFtk: https://www.pdflabs.com/tools/pdftk-the-pdf-toolkit/"
+        }
     }
-    
-    Write-ColorOutput Yellow "Alternative tools are also supported (see requirements.md)"
     Write-Output ""
 }
 
@@ -456,14 +431,14 @@ Write-Header "--------------------------------------------"
 Write-Output ""
 
 if ($allRequired) {
-    Write-Output "  1. Install recommended tools (if desired for PDF export)"
+    Write-Output "  1. Install optional dependencies (if desired for PDF export)"
     Write-Output "  2. Run install.ps1 to install PacketReporter plugin"
     Write-Output "  3. Restart Wireshark"
-    Write-Output "  4. Access plugin via: Tools -> PacketReporter"
+    Write-Output "  4. Access plugin via: Tools → PacketReporter"
 } else {
     Write-Output "  1. Install missing required dependencies (Wireshark)"
     Write-Output "  2. Run this script again to verify installation"
-    Write-Output "  3. Install recommended tools (if desired for PDF export)"
+    Write-Output "  3. Install optional dependencies (if desired for PDF export)"
     Write-Output "  4. Run install.ps1 to install PacketReporter plugin"
 }
 Write-Output ""
@@ -476,6 +451,9 @@ Write-Header "--------------------------------------------"
 Write-Output ""
 Write-Output "  For detailed prerequisites information:"
 Write-Output "    installers/windows/requirements.md"
+Write-Output ""
+Write-Output "  For platform comparison:"
+Write-Output "    PLATFORM_PREREQUISITES.md"
 Write-Output ""
 
 Write-Header "============================================"
