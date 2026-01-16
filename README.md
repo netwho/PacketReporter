@@ -47,24 +47,29 @@ Tools → PacketReporter → Detailed Report (A4)
 
 ### Installation
 
-**Platform-specific one-line installers:**
-
-**macOS:**
+#### macOS
 ```bash
 curl -sSL https://raw.githubusercontent.com/netwho/PacketReporter/main/installers/macos/install.sh | bash
 ```
 
-**Linux:**
+#### Linux
 ```bash
 curl -sSL https://raw.githubusercontent.com/netwho/PacketReporter/main/installers/linux/install.sh | bash
 ```
 
-**Windows (PowerShell):**
+#### Windows
+**Windows users:** Please follow the **[Windows Quick Install Manual](installers/windows/)** (available in English and German) for detailed step-by-step instructions on:
+- Installing rsvg-convert (SVG converter)
+- Installing PDFtk (PDF combiner)
+- Verifying prerequisites
+- Configuring the plugin
+
+Or for quick install:
 ```powershell
 iwr -useb https://raw.githubusercontent.com/netwho/PacketReporter/main/installers/windows/install.ps1 | iex
 ```
 
-**Or manual install:**
+#### Manual Install (All Platforms)
 ```bash
 git clone https://github.com/netwho/PacketReporter.git
 cd PacketReporter
@@ -169,8 +174,14 @@ Comprehensive analysis with 11 major sections (3-8 pages):
 - Wireshark 4.0 or later (includes Lua 5.2+)
 
 ### Optional (for PDF export)
-- `rsvg-convert` (recommended) or `inkscape` or `imagemagick` - Converts SVG to PDF
-- `pdfunite` (recommended) or `pdftk` - Combines multiple PDF pages into a single document
+
+**SVG to PDF Converter:**
+- `rsvg-convert` (recommended) or `inkscape` or `imagemagick`
+
+**PDF Page Combiner:**
+- `pdfunite` (recommended for macOS/Linux) or `pdftk` (recommended for Windows)
+
+**Installation:**
 
 **macOS:**
 ```bash
@@ -181,6 +192,9 @@ brew install librsvg poppler
 ```bash
 sudo apt install librsvg2-bin poppler-utils
 ```
+
+**Windows:**
+- See [Windows Quick Install Manual](installers/windows/) for detailed PDFtk and rsvg-convert installation instructions
 
 ## 🎯 Use Cases
 
