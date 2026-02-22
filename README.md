@@ -559,6 +559,7 @@ This program is free software; you can redistribute it and/or modify it under th
 - Wireshark development team for excellent Lua API
 - Tranalyzer project for reporting format inspiration
 - Network analysis community for feedback and suggestions
+- AI-Assisted: yes (Claude) — used for build system automation, installer scripting, cross-platform compatibility, and documentation
 
 ## 💬 Support & Contact
 
