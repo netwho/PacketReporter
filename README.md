@@ -9,6 +9,21 @@
 [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20|%20Fedora%20|%20Arch-FCC624.svg?logo=linux&logoColor=black)](installers/linux/)
 [![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6.svg?logo=windows)](installers/windows/)
 
+> **🚀 PacketReporter Pro is here!**
+>
+> Development has moved to [**PacketReporter Pro**](https://github.com/netwho/PacketReporterPro) — a native C/C++ Wireshark plugin that replaces this Lua version. Key improvements:
+>
+> - **No external tools** — PDF generation is built-in via Cairo (no more rsvg-convert, pdfunite, or terminal windows on Windows)
+> - **Integrated UI** — Qt6 settings window for paper size, logo, cover page, and report selection
+> - **Annotated Reports** — a new report type with expert annotation sidebars explaining each section
+> - **WiFi / 802.11 Analysis** — full 10-section WiFi reports (RSSI, SNR, channels, MCS, airtime, and more)
+> - **Performance** — compiled C code, significantly faster on large captures
+> - **Theme-aware** — adapts to Wireshark's dark or light theme
+>
+> **Note:** PacketReporter Pro is new and has been tested on macOS 26, Ubuntu 24, and Windows 11 only. Pre-built binaries are available for Wireshark 4.2, 4.4, and 4.6. If you need broad platform coverage or prefer zero compilation dependencies, this Lua version remains fully functional.
+>
+> **This Lua plugin will continue to work but will no longer receive new features.** Bug fixes may still be applied.
+
 A Wireshark plugin for generating network analysis reports with visualizations and PDF export.
 
 > **⚠️ Beta Status**: This is version 0.2.5, a public beta release. While functional, the software is not yet production-ready. Please report any issues you encounter.
